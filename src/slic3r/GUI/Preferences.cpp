@@ -1320,6 +1320,14 @@ wxWindow* PreferencesDialog::create_general_page()
     });
     // auto item_backup = create_item_switch(_L("Backup switch"), page, _L("Backup switch"), "units");
     auto item_gcodes_warning = create_item_checkbox(_L("No warnings when loading 3MF with modified G-code"), page, _L("No warnings when loading 3MF with modified G-code"), 50, "no_warn_when_modified_gcodes");
+    auto item_embed_3mf = create_item_checkbox(
+        _L("Embed project in exported G-code"), page,
+        _L("Include an editable 3MF project in G-code exports and G-code uploads. This increases file size and includes the "
+           "project's source data."),
+        50, "embed_3mf_in_gcode");
+    auto item_embedded_3mf_scope = create_item_combobox(_L("Project contents"), page,
+        _L("Choose whether the embedded 3MF contains the entire project or only the current plate."),
+        "embedded_3mf_plate_scope", {_L("All plates"), _L("Current plate")}, {"all", "current"});
     auto item_backup  = create_item_checkbox(_L("Auto-Backup"), page,_L("Backup your project periodically for restoring from the occasional crash."), 50, "backup_switch");
     auto item_backup_interval = create_item_backup_input(_L("every"), page, _L("The period of backup in seconds."), "backup_interval");
 
@@ -1415,6 +1423,8 @@ wxWindow* PreferencesDialog::create_general_page()
     sizer_page->Add(item_recent_models, 0, wxTOP, FromDIP(3));
     sizer_page->Add(item_save_choise, 0, wxTOP, FromDIP(3));
     sizer_page->Add(item_gcodes_warning, 0, wxTOP, FromDIP(3));
+    sizer_page->Add(item_embed_3mf, 0, wxTOP, FromDIP(3));
+    sizer_page->Add(item_embedded_3mf_scope, 0, wxTOP, FromDIP(3));
     sizer_page->Add(item_backup, 0, wxTOP,FromDIP(3));
     item_backup->Add(item_backup_interval, 0, wxLEFT, 0);
 

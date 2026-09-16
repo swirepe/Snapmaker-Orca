@@ -19,6 +19,7 @@
 #include "libslic3r/Print.hpp"
 #include "libslic3r/SLAPrint.hpp"
 #include "libslic3r/Utils.hpp"
+#include "libslic3r/GCode/Embedded3MF.hpp"
 #include "libslic3r/GCode/PostProcessor.hpp"
 #include "libslic3r/Format/SL1.hpp"
 #include "libslic3r/Thread.hpp"
@@ -119,6 +120,7 @@ BackgroundSlicingProcess::~BackgroundSlicingProcess()
 {
 	this->stop();
 	this->join_background_thread();
+	this->clear_embedded_project();
 	//BBS: move this logic to part plate
 	//boost::nowide::remove(m_temp_output_path.c_str());
 }
@@ -718,7 +720,8 @@ void BackgroundSlicingProcess::set_task(const PrintBase::TaskParams &params)
 }
 
 // Set the output path of the G-code.
-void BackgroundSlicingProcess::schedule_export(const std::string &path, bool export_path_on_removable_media)
+void BackgroundSlicingProcess::schedule_export(
+    const std::string &path, bool export_path_on_removable_media, const std::string &embedded_project_path)
 {
 	assert(m_export_path.empty());
 	if (! m_export_path.empty())
@@ -729,9 +732,11 @@ void BackgroundSlicingProcess::schedule_export(const std::string &path, bool exp
 	this->invalidate_step(bspsGCodeFinalize);
 	m_export_path = path;
 	m_export_path_on_removable_media = export_path_on_removable_media;
+	clear_embedded_project();
+	m_embedded_project_path = embedded_project_path;
 }
 
-void BackgroundSlicingProcess::schedule_upload(Slic3r::PrintHostJob upload_job)
+void BackgroundSlicingProcess::schedule_upload(Slic3r::PrintHostJob upload_job, const std::string &embedded_project_path)
 {
 	assert(m_export_path.empty());
 	if (! m_export_path.empty())
@@ -742,6 +747,8 @@ void BackgroundSlicingProcess::schedule_upload(Slic3r::PrintHostJob upload_job)
 	this->invalidate_step(bspsGCodeFinalize);
 	m_export_path.clear();
 	m_upload_job = std::move(upload_job);
+	clear_embedded_project();
+	m_embedded_project_path = embedded_project_path;
 }
 
 void BackgroundSlicingProcess::reset_export()
@@ -750,10 +757,35 @@ void BackgroundSlicingProcess::reset_export()
 	if (! this->running()) {
 		m_export_path.clear();
 		m_export_path_on_removable_media = false;
+		clear_embedded_project();
 		// invalidate_step expects the mutex to be locked.
 		std::scoped_lock<std::mutex> lock(m_print->state_mutex());
 		this->invalidate_step(bspsGCodeFinalize);
 	}
+}
+
+void BackgroundSlicingProcess::append_embedded_project(const std::string &gcode_path)
+{
+	if (m_embedded_project_path.empty())
+		return;
+
+	ScopeGuard cleanup([this]() { clear_embedded_project(); });
+	std::string error;
+	if (!GCodeEmbedded3MF::append(gcode_path, m_embedded_project_path, error))
+		throw Slic3r::ExportError(
+			GUI::format(_L("Failed to embed the 3MF project in the G-code file.\nError message: %1%"), error));
+}
+
+void BackgroundSlicingProcess::clear_embedded_project()
+{
+	if (m_embedded_project_path.empty())
+		return;
+	boost::system::error_code ec;
+	boost::filesystem::remove(m_embedded_project_path, ec);
+	if (ec)
+		BOOST_LOG_TRIVIAL(warning) << "Failed to remove temporary embedded 3MF project " << m_embedded_project_path << ": "
+		                           << ec.message();
+	m_embedded_project_path.clear();
 }
 
 bool BackgroundSlicingProcess::set_step_started(BackgroundSlicingProcessStep step)
@@ -787,6 +819,7 @@ bool BackgroundSlicingProcess::invalidate_all_steps()
 // Copy the final G-code to target location (possibly a SD card, if it is a removable media, then verify that the file was written without an error).
 void BackgroundSlicingProcess::finalize_gcode()
 {
+	ScopeGuard embedded_project_cleanup([this]() { clear_embedded_project(); });
 	m_print->set_status(95, _u8L("Running post-processing scripts"));
 
 	// Perform the final post-processing of the export path by applying the print statistics over the file name.
@@ -844,6 +877,7 @@ void BackgroundSlicingProcess::finalize_gcode()
 		break;
 	}
 
+	append_embedded_project(export_path);
 	m_print->set_status(100, GUI::format(_L("G-code file exported to %1%"), export_path));
 }
 
@@ -852,6 +886,7 @@ void BackgroundSlicingProcess::finalize_gcode()
 // Copy the final G-code to target location (possibly a SD card, if it is a removable media, then verify that the file was written without an error).
 void BackgroundSlicingProcess::export_gcode()
 {
+	ScopeGuard embedded_project_cleanup([this]() { clear_embedded_project(); });
 	// Perform the final post-processing of the export path by applying the print statistics over the file name.
 	std::string export_path = m_fff_print->print_statistics().finalize_output_path(m_export_path);
 	std::string output_path = m_temp_output_path;
@@ -891,27 +926,30 @@ void BackgroundSlicingProcess::export_gcode()
 		break;
 	}
 
+	// BBS: line numbering and embedding are the final transformations, after post-processing.
+	gcode_add_line_number(export_path, m_fff_print->full_print_config());
+	append_embedded_project(export_path);
+
 	// BBS
 	auto evt = new wxCommandEvent(m_event_export_finished_id, GUI::wxGetApp().mainframe->m_plater->GetId());
 	wxString output_gcode_str = wxString::FromUTF8(export_path.c_str(), export_path.length());
 	evt->SetString(output_gcode_str);
 	wxQueueEvent(GUI::wxGetApp().mainframe->m_plater, evt);
 
-	// BBS: to be checked. Whether use export_path or output_path.
-	gcode_add_line_number(export_path, m_fff_print->full_print_config());
-
 }
 
 // A print host upload job has been scheduled, enqueue it to the printhost job queue
 void BackgroundSlicingProcess::prepare_upload()
 {
+	ScopeGuard embedded_project_cleanup([this]() { clear_embedded_project(); });
 	// Generate a unique temp path to which the gcode/zip file is copied/exported
 	boost::filesystem::path source_path = boost::filesystem::temp_directory_path()
 		/ boost::filesystem::unique_path("." SLIC3R_APP_KEY ".upload.%%%%-%%%%-%%%%-%%%%");
 
 	if (m_print == m_fff_print) {
-        if (m_upload_job.upload_data.use_3mf) {
+		if (m_upload_job.upload_data.use_3mf) {
             source_path = m_upload_job.upload_data.source_path;
+            clear_embedded_project();
         } else {
 		    m_print->set_status(95, _utf8(L("Running post-processing scripts")));
 		    std::string error_message;
@@ -930,6 +968,7 @@ void BackgroundSlicingProcess::prepare_upload()
                                              m_fff_print->full_print_config()))
 			    m_upload_job.upload_data.upload_path = output_name_str;
 			}
+			append_embedded_project(source_path.string());
 		}
     } else {
         m_upload_job.upload_data.upload_path = m_sla_print->print_statistics().finalize_output_path(m_upload_job.upload_data.upload_path.string());

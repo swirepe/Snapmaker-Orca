@@ -149,10 +149,10 @@ public:
 
 	// Set the export path of the G-code.
 	// Once the path is set, the G-code
-	void schedule_export(const std::string &path, bool export_path_on_removable_media);
+	void schedule_export(const std::string &path, bool export_path_on_removable_media, const std::string &embedded_project_path = {});
 	// Set print host upload job data to be enqueued to the PrintHostJobQueue
 	// after current print slicing is complete
-	void schedule_upload(Slic3r::PrintHostJob upload_job);
+	void schedule_upload(Slic3r::PrintHostJob upload_job, const std::string &embedded_project_path = {});
 	// Clear m_export_path.
 	void reset_export();
 	// Once the G-code export is scheduled, the apply() methods will do nothing.
@@ -248,6 +248,8 @@ private:
 	// Print host upload job to schedule after slicing is complete, used by schedule_upload(),
 	// empty by default (ie. no upload to schedule)
 	PrintHostJob                m_upload_job;
+	// Temporary 3MF snapshot to append to a raw G-code export or upload.
+	std::string                 m_embedded_project_path;
 	// Thread, on which the background processing is executed. The thread will always be present
 	// and ready to execute the slicing process.
 	boost::thread		 		m_thread;
@@ -289,6 +291,8 @@ private:
 	void				finalize_gcode();
 	void				export_gcode();
     void                prepare_upload();
+    void                append_embedded_project(const std::string &gcode_path);
+    void                clear_embedded_project();
     // To be executed at the background thread.
 	ThumbnailsList		render_thumbnails(const ThumbnailsParams &params);
 	// Execute task from background thread on the UI thread synchronously. Returns true if processed, false if cancelled before executing the task.
