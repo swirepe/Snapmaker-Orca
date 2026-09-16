@@ -211,6 +211,8 @@ set(lisbslic3r_sources
     GCode/ConflictChecker.hpp
     GCode/CoolingBuffer.cpp
     GCode/CoolingBuffer.hpp
+    GCode/Embedded3MF.cpp
+    GCode/Embedded3MF.hpp
     GCode.cpp
     GCode/ExtrusionProcessor.hpp
     GCode/FanMover.cpp

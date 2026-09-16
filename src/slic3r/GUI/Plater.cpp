@@ -86,6 +86,7 @@
 #include "libslic3r/Format/AMF.hpp"
 //#include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
+#include "libslic3r/GCode/Embedded3MF.hpp"
 #include "libslic3r/GCode/ThumbnailData.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/SLA/Hollowing.hpp"
@@ -10381,6 +10382,7 @@ struct Plater::priv
     }
     void export_gcode(fs::path output_path, bool output_path_on_removable_media);
     void export_gcode(fs::path output_path, bool output_path_on_removable_media, PrintHostJob upload_job);
+    bool prepare_embedded_project(std::string &project_path);
 
     void reload_from_disk();
     bool replace_volume_with_stl(int object_idx, int volume_idx, const fs::path& new_path, const std::string& snapshot = "");
@@ -13792,7 +13794,10 @@ void Plater::priv::export_gcode(fs::path output_path, bool output_path_on_remova
 
     show_warning_dialog = true;
     if (! output_path.empty()) {
-        background_process.schedule_export(output_path.string(), output_path_on_removable_media);
+        std::string embedded_project_path;
+        if (!prepare_embedded_project(embedded_project_path))
+            return;
+        background_process.schedule_export(output_path.string(), output_path_on_removable_media, embedded_project_path);
         notification_manager->push_delayed_notification(NotificationType::ExportOngoing, []() {return true; }, 1000, 0);
     } else {
         BOOST_LOG_TRIVIAL(info) << "output_path  is empty";
@@ -13823,16 +13828,53 @@ void Plater::priv::export_gcode(fs::path output_path, bool output_path_on_remova
         return;
 
     show_warning_dialog = true;
+    std::string embedded_project_path;
+    const bool raw_gcode = !output_path.empty() || (!upload_job.empty() && !upload_job.upload_data.use_3mf);
+    if (raw_gcode && !prepare_embedded_project(embedded_project_path))
+        return;
     if (! output_path.empty()) {
-        background_process.schedule_export(output_path.string(), output_path_on_removable_media);
+        background_process.schedule_export(output_path.string(), output_path_on_removable_media, embedded_project_path);
         notification_manager->push_delayed_notification(NotificationType::ExportOngoing, []() {return true; }, 1000, 0);
     } else {
-        background_process.schedule_upload(std::move(upload_job));
+        background_process.schedule_upload(std::move(upload_job), embedded_project_path);
     }
 
     // If the SLA processing of just a single object's supports is running, restart slicing for the whole object.
     this->background_process.set_task(PrintBase::TaskParams());
     this->restart_background_process(priv::UPDATE_BACKGROUND_PROCESS_FORCE_EXPORT);
+}
+
+bool Plater::priv::prepare_embedded_project(std::string &project_path)
+{
+    project_path.clear();
+    AppConfig *config = wxGetApp().app_config;
+    if (q->printer_technology() != ptFFF || config == nullptr || !config->get_bool("embed_3mf_in_gcode"))
+        return true;
+
+    const fs::path temp_path = fs::temp_directory_path() /
+        fs::unique_path("." SLIC3R_APP_KEY ".embedded-project.%%%%-%%%%-%%%%.3mf");
+    const int export_plate_idx = config->get("embedded_3mf_plate_scope") == "current" ?
+        partplate_list.get_curr_plate_index() : PLATE_ALL_IDX;
+
+    try {
+        SaveStrategy strategy = SaveStrategy::Silence | SaveStrategy::SplitModel |
+                                SaveStrategy::ShareMesh | SaveStrategy::FullPathSources;
+        if (q->export_3mf(temp_path, strategy, export_plate_idx) < 0) {
+            boost::system::error_code ec;
+            fs::remove(temp_path, ec);
+            GUI::show_error(q, _L("Failed to create the 3MF project to embed in the G-code file."));
+            return false;
+        }
+    } catch (const std::exception &exception) {
+        boost::system::error_code ec;
+        fs::remove(temp_path, ec);
+        GUI::show_error(q,
+            GUI::format(_L("Failed to create the 3MF project to embed in the G-code file.\nError message: %1%"), exception.what()));
+        return false;
+    }
+
+    project_path = temp_path.string();
+    return true;
 }
 unsigned int Plater::priv::update_restart_background_process(bool force_update_scene, bool force_update_preview)
 {
@@ -19016,6 +19058,58 @@ void Plater::load_gcode(const wxString& filename)
         return;
     }
 
+    const fs::path extracted_project_path = fs::temp_directory_path() /
+        fs::unique_path("." SLIC3R_APP_KEY ".extracted-project.%%%%-%%%%-%%%%.3mf");
+    const GCodeEmbedded3MF::ExtractResult embedded_project =
+        GCodeEmbedded3MF::extract(into_u8(filename), extracted_project_path.string());
+    ScopeGuard extracted_project_cleanup([&extracted_project_path]() {
+        boost::system::error_code ec;
+        fs::remove(extracted_project_path, ec);
+    });
+
+    bool open_embedded_project = false;
+    if (embedded_project.status == GCodeEmbedded3MF::ExtractStatus::Valid) {
+        MessageDialog dialog(this,
+            _L("This G-code file contains an embedded 3MF project. Would you like to open the editable project or view the "
+               "G-code toolpaths?"),
+            _L("Embedded project found"), wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
+        dialog.SetButtonLabel(wxID_YES, _L("Open Project"));
+        dialog.SetButtonLabel(wxID_NO, _L("View G-code"));
+        open_embedded_project = dialog.ShowModal() == wxID_YES;
+    } else if (embedded_project.status == GCodeEmbedded3MF::ExtractStatus::Corrupt) {
+        if (embedded_project.has_project_data) {
+            MessageDialog dialog(this,
+                _L("The embedded 3MF project may be damaged. Its integrity check failed:\n\n") +
+                    from_u8(embedded_project.error) + "\n\n" +
+                    _L("You can try to open the recovered project anyway, or view the G-code toolpaths."),
+                _L("Embedded project may be damaged"), wxYES_NO | wxNO_DEFAULT | wxICON_WARNING);
+            dialog.SetButtonLabel(wxID_YES, _L("Open Anyway"));
+            dialog.SetButtonLabel(wxID_NO, _L("View G-code"));
+            open_embedded_project = dialog.ShowModal() == wxID_YES;
+        } else {
+            MessageDialog(this,
+                _L("This G-code file contains an embedded 3MF project, but no project data could be recovered:\n\n") +
+                    from_u8(embedded_project.error) + "\n\n" + _L("The G-code toolpaths will be opened instead."),
+                _L("Embedded project is damaged"), wxOK | wxICON_WARNING).ShowModal();
+        }
+    } else if (embedded_project.status == GCodeEmbedded3MF::ExtractStatus::IoError) {
+        MessageDialog(this,
+            _L("Snapmaker Orca could not inspect this G-code file for an embedded project:\n\n") +
+                from_u8(embedded_project.error) + "\n\n" + _L("The G-code toolpaths will be opened instead."),
+            _L("Could not inspect embedded project"), wxOK | wxICON_WARNING).ShowModal();
+    }
+
+    if (open_embedded_project) {
+        load_project(from_path(extracted_project_path), "<loadall>");
+        if (into_path(get_project_filename(".3mf")) == extracted_project_path) {
+            wxGetApp().mainframe->sm_remove_recent_project(from_path(extracted_project_path));
+            set_project_filename(DEFAULT_PROJECT_NAME);
+            set_plater_dirty(true);
+            p->update_title_dirty_status();
+        }
+        return;
+    }
+
     m_last_loaded_gcode = filename;
 
     // BSS: create a new project when load_gcode, force close previous one
@@ -21647,6 +21741,38 @@ void Plater::send_gcode_legacy(int plate_idx, Export3mfProgressFn proFn, bool us
         upload_job.upload_data.group       = dlg.group();
         upload_job.upload_data.storage     = dlg.storage();
 
+        std::string embedded_project_path;
+        std::string embedded_gcode_path;
+        ScopeGuard embedded_files_cleanup([&embedded_project_path, &embedded_gcode_path]() {
+            boost::system::error_code ec;
+            if (!embedded_project_path.empty())
+                fs::remove(embedded_project_path, ec);
+            ec.clear();
+            if (!embedded_gcode_path.empty())
+                fs::remove(embedded_gcode_path, ec);
+        });
+        if (!use_3mf) {
+            if (!p->prepare_embedded_project(embedded_project_path))
+                return;
+            if (!embedded_project_path.empty()) {
+                const fs::path temp_gcode = fs::temp_directory_path() /
+                    fs::unique_path("." SLIC3R_APP_KEY ".upload-with-project.%%%%-%%%%-%%%%.gcode");
+                std::string copy_error;
+                if (copy_file(file_path, temp_gcode.string(), copy_error) != CopyFileResult::SUCCESS) {
+                    GUI::show_error(this,
+                        GUI::format(_L("Failed to prepare the G-code upload with an embedded project.\nError message: %1%"), copy_error));
+                    return;
+                }
+                embedded_gcode_path = temp_gcode.string();
+                std::string embed_error;
+                if (!GCodeEmbedded3MF::append(embedded_gcode_path, embedded_project_path, embed_error)) {
+                    GUI::show_error(this,
+                        GUI::format(_L("Failed to prepare the G-code upload with an embedded project.\nError message: %1%"), embed_error));
+                    return;
+                }
+                upload_job.upload_data.source_path = embedded_gcode_path;
+            }
+        }
 
         WebPreprintDialog* dialog = new WebPreprintDialog();
         dialog->set_swtich_to_device(dlg.switch_to_device_tab());
@@ -24695,5 +24821,3 @@ SuppressBackgroundProcessingUpdate::~SuppressBackgroundProcessingUpdate()
 }
 
 }}    // namespace Slic3r::GUI
-
-
