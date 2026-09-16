@@ -49,3 +49,4 @@ sentry-native/
 .claude/
 .hermes/
 CLAUDE.md
+.aider*

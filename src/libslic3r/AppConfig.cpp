@@ -132,6 +132,11 @@ void AppConfig::set_defaults()
         if (get("drop_project_action").empty())
             set_bool("drop_project_action", true);
 
+        if (get("embed_3mf_in_gcode").empty())
+            set_bool("embed_3mf_in_gcode", false);
+        if (get("embedded_3mf_plate_scope").empty())
+            set("embedded_3mf_plate_scope", "all");
+
 #ifdef _WIN32
         if (get("associate_3mf").empty())
             set_bool("associate_3mf", false);

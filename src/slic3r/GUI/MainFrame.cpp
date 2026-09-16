@@ -2560,6 +2560,19 @@ void MainFrame::init_menubar_as_editor()
             [this](){return can_open_project(); }, this);
 #endif
 
+        // Open G-code
+#ifndef __APPLE__
+        append_menu_item(fileMenu, wxID_ANY, _L("&Open G-code") + dots,
+            _L("Open a G-code file to view its toolpaths or recover an embedded project"),
+            [this](wxCommandEvent&) { if (m_plater) m_plater->load_gcode(); }, "menu_open", nullptr,
+            [this](){return can_open_project(); }, this);
+#else
+        append_menu_item(fileMenu, wxID_ANY, _L("&Open G-code") + dots,
+            _L("Open a G-code file to view its toolpaths or recover an embedded project"),
+            [this](wxCommandEvent&) { if (m_plater) m_plater->load_gcode(); }, "", nullptr,
+            [this](){return can_open_project(); }, this);
+#endif
+
         // Recent Project
         wxMenu* recent_projects_menu = new wxMenu();
         wxMenuItem* recent_projects_submenu = append_submenu(fileMenu, recent_projects_menu, wxID_ANY, _L("Recent projects"), "");
