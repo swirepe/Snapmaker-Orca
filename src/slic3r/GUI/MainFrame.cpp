@@ -3032,6 +3032,20 @@ void MainFrame::init_menubar_as_editor()
         }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
 
+    append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("Clear filament"), _L("Clear filament pane calibration"),
+        [this](wxCommandEvent&) {
+            if (!m_clear_filament_calib_dlg)
+                m_clear_filament_calib_dlg = new Pane_Calibration_Dlg(this, wxID_ANY, m_plater, PaneCalibrationTool::ClearFilament);
+            m_clear_filament_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
+
+    append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("Ironing"), _L("Ironing pane calibration"),
+        [this](wxCommandEvent&) {
+            if (!m_ironing_calib_dlg)
+                m_ironing_calib_dlg = new Pane_Calibration_Dlg(this, wxID_ANY, m_plater, PaneCalibrationTool::Ironing);
+            m_ironing_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
+
     // Flow rate (with submenu)
     auto flowrate_menu = new wxMenu();
     append_menu_item(
@@ -3153,6 +3167,20 @@ void MainFrame::init_menubar_as_editor()
             m_temp_calib_dlg->ShowModal();
         }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
+
+    append_menu_item(calib_menu, wxID_ANY, _L("Clear filament"), _L("Clear filament pane calibration"),
+        [this](wxCommandEvent&) {
+            if (!m_clear_filament_calib_dlg)
+                m_clear_filament_calib_dlg = new Pane_Calibration_Dlg(this, wxID_ANY, m_plater, PaneCalibrationTool::ClearFilament);
+            m_clear_filament_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
+
+    append_menu_item(calib_menu, wxID_ANY, _L("Ironing"), _L("Ironing pane calibration"),
+        [this](wxCommandEvent&) {
+            if (!m_ironing_calib_dlg)
+                m_ironing_calib_dlg = new Pane_Calibration_Dlg(this, wxID_ANY, m_plater, PaneCalibrationTool::Ironing);
+            m_ironing_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
 
     // Flowrate (with submenu)
     auto flowrate_menu = new wxMenu();

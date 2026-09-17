@@ -24,12 +24,12 @@ void GLGizmoFuzzySkin::on_shutdown()
 
 std::string GLGizmoFuzzySkin::on_get_name() const
 {
-    return _u8L("Paint-on fuzzy skin");
+    return m_ironing ? _u8L("Paint-on ironing") : _u8L("Paint-on fuzzy skin");
 }
 
 bool GLGizmoFuzzySkin::on_init()
 {
-    m_shortcut_key = WXK_CONTROL_H;
+    m_shortcut_key = m_ironing ? 0 : WXK_CONTROL_H;
 
     // FIXME: maybe should be using GUI::shortkey_ctrl_prefix() or equivalent?
     const wxString ctrl  = _L("Ctrl+");
@@ -44,9 +44,9 @@ bool GLGizmoFuzzySkin::on_init()
     m_desc["cursor_size"]               = _L("Brush size");
     m_desc["cursor_type"]               = _L("Brush shape") ;
     m_desc["add_fuzzy_skin_caption"]    = _L("Left mouse button");
-    m_desc["add_fuzzy_skin"]            = _L("Add fuzzy skin");
+    m_desc["add_fuzzy_skin"]            = m_ironing ? _L("Enable ironing") : _L("Add fuzzy skin");
     m_desc["remove_fuzzy_skin_caption"] = shift + _L("Left mouse button");
-    m_desc["remove_fuzzy_skin"]         = _L("Remove fuzzy skin");
+    m_desc["remove_fuzzy_skin"]         = m_ironing ? _L("Disable ironing") : _L("Remove fuzzy skin");
     m_desc["remove_all"]                = _L("Erase all painting");
     m_desc["circle"]                    = _L("Circle");
     m_desc["sphere"]                    = _L("Sphere");
@@ -60,8 +60,8 @@ bool GLGizmoFuzzySkin::on_init()
     return true;
 }
 
-GLGizmoFuzzySkin::GLGizmoFuzzySkin(GLCanvas3D& parent, const std::string& icon_filename, unsigned int sprite_id)
-    : GLGizmoPainterBase(parent, icon_filename, sprite_id), m_current_tool(ImGui::CircleButtonIcon)
+GLGizmoFuzzySkin::GLGizmoFuzzySkin(GLCanvas3D& parent, const std::string& icon_filename, unsigned int sprite_id, bool ironing)
+    : GLGizmoPainterBase(parent, icon_filename, sprite_id), m_current_tool(ImGui::CircleButtonIcon), m_ironing(ironing)
 {
 }
 
@@ -345,7 +345,7 @@ void GLGizmoFuzzySkin::update_model_object()
             continue;
 
         ++idx;
-        updated |= mv->fuzzy_skin_facets.set(*m_triangle_selectors[idx]);
+        updated |= (m_ironing ? mv->ironing_facets : mv->fuzzy_skin_facets).set(*m_triangle_selectors[idx]);
     }
 
     if (updated) {
@@ -378,19 +378,20 @@ void GLGizmoFuzzySkin::update_from_model_object(bool first_update)
         const TriangleMesh* mesh = &mv->mesh();
         m_triangle_selectors.emplace_back(std::make_unique<TriangleSelectorPatch>(*mesh, ebt_colors));
         // Reset of TriangleSelector is done inside TriangleSelectorGUI's constructor, so we don't need it to perform it again in deserialize().
-        m_triangle_selectors.back()->deserialize(mv->fuzzy_skin_facets.get_data(), false);
+        m_triangle_selectors.back()->deserialize((m_ironing ? mv->ironing_facets : mv->fuzzy_skin_facets).get_data(), false);
         m_triangle_selectors.back()->request_update_render_data();
     }
 }
 
 PainterGizmoType GLGizmoFuzzySkin::get_painter_type() const
 {
-    return PainterGizmoType::FUZZY_SKIN;
+    return m_ironing ? PainterGizmoType::IRONING : PainterGizmoType::FUZZY_SKIN;
 }
 
 wxString GLGizmoFuzzySkin::handle_snapshot_action_name(bool shift_down, GLGizmoPainterBase::Button button_down) const
 {
-    return shift_down ? _L("Remove fuzzy skin") : _L("Add fuzzy skin");
+    return m_ironing ? (shift_down ? _L("Disable ironing") : _L("Enable ironing")) :
+                        (shift_down ? _L("Remove fuzzy skin") : _L("Add fuzzy skin"));
 }
 
 } // namespace Slic3r::GUI

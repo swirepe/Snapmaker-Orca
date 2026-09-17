@@ -158,6 +158,10 @@ public:
     // BBS
     ExPolygons              loverhangs;
     BoundingBox             loverhangs_bbox;
+    // If painting is active for the object, ironing paths are intersected with
+    // this layer mask. An empty mask intentionally disables ironing here.
+    bool                    ironing_painting_active {false};
+    ExPolygons              ironing_painted_areas;
     size_t                  region_count() const { return m_regions.size(); }
     const LayerRegion*      get_region(int idx) const { return m_regions[idx]; }
     LayerRegion*            get_region(int idx) { return m_regions[idx]; }

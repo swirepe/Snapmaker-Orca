@@ -1113,4 +1113,337 @@ void Junction_Deviation_Test_Dlg::on_dpi_changed(const wxRect& suggested_rect) {
     Fit();
 }
 
+namespace {
+
+wxString pane_factor_label(PaneCalibrationFactor factor)
+{
+    switch (factor) {
+    case PaneCalibrationFactor::NozzleTemperature: return _L("Nozzle temperature (°C)");
+    case PaneCalibrationFactor::PrintSpeed: return _L("Print speed (mm/s)");
+    case PaneCalibrationFactor::FlowRatio: return _L("Flow ratio");
+    case PaneCalibrationFactor::LayerHeight: return _L("Layer height (mm)");
+    case PaneCalibrationFactor::MaxFanSpeed: return _L("Part cooling fan (%)");
+    case PaneCalibrationFactor::WallFanSpeed: return _L("Wall fan (%)");
+    case PaneCalibrationFactor::IroningFanSpeed: return _L("Ironing fan (%)");
+    case PaneCalibrationFactor::AuxiliaryFanSpeed: return _L("Auxiliary fan (%)");
+    case PaneCalibrationFactor::IroningType: return _L("Ironing mode");
+    case PaneCalibrationFactor::IroningFlow: return _L("Ironing flow (%)");
+    case PaneCalibrationFactor::IroningAngle: return _L("Ironing direction");
+    case PaneCalibrationFactor::LineWidth: return _L("Line width (mm)");
+    case PaneCalibrationFactor::IroningSpeed: return _L("Ironing speed (mm/s)");
+    case PaneCalibrationFactor::IroningSpacing: return _L("Ironing spacing (mm)");
+    }
+    return _L("Unknown factor");
+}
+
+bool pane_factor_is_categorical(PaneCalibrationFactor factor)
+{
+    return factor == PaneCalibrationFactor::IroningType || factor == PaneCalibrationFactor::IroningAngle;
+}
+
+} // namespace
+
+Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plater *plater, PaneCalibrationTool tool)
+    : DPIDialog(parent, id,
+                tool == PaneCalibrationTool::ClearFilament ? _L("Clear filament calibration") : _L("Ironing calibration"),
+                wxDefaultPosition, parent->FromDIP(wxSize(760, 760)), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
+      m_plater(plater), m_tool(tool)
+{
+    SetBackgroundColour(*wxWHITE);
+    SetForegroundColour(wxColour("#363636"));
+    SetFont(Label::Body_14);
+
+    const PaneCalibrationConfig defaults = default_pane_calibration_config(tool);
+    auto *outer = new wxBoxSizer(wxVERTICAL);
+    SetSizer(outer);
+    auto *scroll = new wxScrolledWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
+    scroll->SetScrollRate(0, FromDIP(12));
+    auto *content = new wxBoxSizer(wxVERTICAL);
+    scroll->SetSizer(content);
+
+    auto *design_box = new wxStaticBoxSizer(wxVERTICAL, scroll, _L("Experiment design"));
+    auto *design_row = new wxBoxSizer(wxHORIZONTAL);
+    design_row->Add(new wxStaticText(scroll, wxID_ANY, _L("Design")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+    m_design = new wxChoice(scroll, wxID_ANY);
+    m_design->Append(_L("Linear series"));
+    m_design->Append(_L("2D grid"));
+    m_design->Append(_L("Taguchi orthogonal array"));
+    m_design->SetSelection(2);
+    design_row->Add(m_design, 1, wxRIGHT, FromDIP(16));
+    design_row->Add(new wxStaticText(scroll, wxID_ANY, _L("Taguchi levels")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(8));
+    m_taguchi_levels = new wxSpinCtrl(scroll, wxID_ANY);
+    m_taguchi_levels->SetRange(2, 4);
+    m_taguchi_levels->SetValue(4);
+    design_row->Add(m_taguchi_levels, 0);
+    design_box->Add(design_row, 0, wxALL | wxEXPAND, FromDIP(6));
+    content->Add(design_box, 0, wxALL | wxEXPAND, FromDIP(8));
+
+    auto *factors_box = new wxStaticBoxSizer(wxVERTICAL, scroll, _L("Factors"));
+    auto *factor_grid = new wxFlexGridSizer(5, FromDIP(5), FromDIP(8));
+    factor_grid->AddGrowableCol(1, 1);
+    factor_grid->Add(new wxStaticText(scroll, wxID_ANY, _L("Use")));
+    factor_grid->Add(new wxStaticText(scroll, wxID_ANY, _L("Factor")));
+    factor_grid->Add(new wxStaticText(scroll, wxID_ANY, _L("Minimum")));
+    factor_grid->Add(new wxStaticText(scroll, wxID_ANY, _L("Maximum")));
+    factor_grid->Add(new wxStaticText(scroll, wxID_ANY, _L("Levels")));
+    for (const PaneCalibrationFactorSetting &factor : defaults.factors) {
+        FactorControls controls;
+        controls.factor = factor.factor;
+        controls.enabled = new wxCheckBox(scroll, wxID_ANY, wxEmptyString);
+        controls.enabled->SetValue(factor.enabled);
+        factor_grid->Add(controls.enabled, 0, wxALIGN_CENTER);
+        factor_grid->Add(new wxStaticText(scroll, wxID_ANY, pane_factor_label(factor.factor)), 0, wxALIGN_CENTER_VERTICAL);
+
+        controls.minimum = new wxSpinCtrlDouble(scroll, wxID_ANY);
+        controls.maximum = new wxSpinCtrlDouble(scroll, wxID_ANY);
+        const bool percent = factor.factor == PaneCalibrationFactor::MaxFanSpeed || factor.factor == PaneCalibrationFactor::WallFanSpeed ||
+                             factor.factor == PaneCalibrationFactor::IroningFanSpeed ||
+                             factor.factor == PaneCalibrationFactor::AuxiliaryFanSpeed || factor.factor == PaneCalibrationFactor::IroningFlow;
+        const double lower = factor.factor == PaneCalibrationFactor::NozzleTemperature ? 100. :
+                             factor.factor == PaneCalibrationFactor::FlowRatio ? 0.5 : 0.;
+        const double upper = factor.factor == PaneCalibrationFactor::NozzleTemperature ? 500. :
+                             factor.factor == PaneCalibrationFactor::FlowRatio ? 1.5 :
+                             percent ? 100. : 500.;
+        const int digits = factor.factor == PaneCalibrationFactor::NozzleTemperature || percent ? 0 : 3;
+        for (wxSpinCtrlDouble *spin : {controls.minimum, controls.maximum}) {
+            spin->SetRange(lower, upper);
+            spin->SetDigits(digits);
+            spin->SetIncrement(digits == 0 ? 1. : 0.01);
+            spin->SetMinSize(FromDIP(wxSize(95, -1)));
+        }
+        controls.minimum->SetValue(factor.minimum);
+        controls.maximum->SetValue(factor.maximum);
+        const bool categorical = pane_factor_is_categorical(factor.factor);
+        controls.minimum->Enable(!categorical);
+        controls.maximum->Enable(!categorical);
+        factor_grid->Add(controls.minimum, 0, wxEXPAND);
+        factor_grid->Add(controls.maximum, 0, wxEXPAND);
+        controls.levels = new wxSpinCtrl(scroll, wxID_ANY);
+        controls.levels->SetRange(2, categorical ? 4 : 10);
+        controls.levels->SetValue(int(factor.levels));
+        factor_grid->Add(controls.levels, 0, wxEXPAND);
+        m_factors.emplace_back(controls);
+    }
+    factors_box->Add(factor_grid, 1, wxALL | wxEXPAND, FromDIP(6));
+    content->Add(factors_box, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(8));
+
+    auto make_dimension = [scroll](double value, double minimum, double maximum, int digits) {
+        auto *spin = new wxSpinCtrlDouble(scroll, wxID_ANY);
+        spin->SetRange(minimum, maximum);
+        spin->SetDigits(digits);
+        spin->SetIncrement(digits == 0 ? 1. : 0.1);
+        spin->SetValue(value);
+        return spin;
+    };
+    auto *geometry_box = new wxStaticBoxSizer(wxVERTICAL, scroll, _L("Pane and label geometry"));
+    auto *geometry_grid = new wxFlexGridSizer(4, FromDIP(5), FromDIP(8));
+    geometry_grid->AddGrowableCol(1, 1);
+    geometry_grid->AddGrowableCol(3, 1);
+    auto add_geometry = [&](const wxString &label, wxSpinCtrlDouble *control) {
+        geometry_grid->Add(new wxStaticText(scroll, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL);
+        geometry_grid->Add(control, 1, wxEXPAND);
+    };
+    m_pane_width = make_dimension(defaults.pane_width, 5., 300., 1);
+    m_pane_depth = make_dimension(defaults.pane_depth, 5., 300., 1);
+    m_pane_height = make_dimension(defaults.pane_height, 0.2, 50., 2);
+    m_pane_gap = make_dimension(defaults.pane_gap, 0., 50., 1);
+    add_geometry(_L("Width (mm)"), m_pane_width);
+    add_geometry(_L("Depth (mm)"), m_pane_depth);
+    add_geometry(_L("Height (mm)"), m_pane_height);
+    add_geometry(_L("Gap (mm)"), m_pane_gap);
+    m_glyph_height = make_dimension(defaults.label_glyph_height, 1., 20., 1);
+    m_label_relief = make_dimension(defaults.label_relief, 0.1, 10., 1);
+    add_geometry(_L("Glyph height (mm)"), m_glyph_height);
+    add_geometry(_L("Label relief (mm)"), m_label_relief);
+    geometry_box->Add(geometry_grid, 0, wxALL | wxEXPAND, FromDIP(6));
+
+    auto *option_row = new wxBoxSizer(wxHORIZONTAL);
+    m_mouse_ears = new wxCheckBox(scroll, wxID_ANY, _L("Mouse ears"));
+    m_labels = new wxCheckBox(scroll, wxID_ANY, _L("Emboss labels"));
+    option_row->Add(m_mouse_ears, 0, wxRIGHT, FromDIP(18));
+    option_row->Add(m_labels, 0);
+    geometry_box->Add(option_row, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+
+    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+    const auto *nozzle_diameters = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
+    const int extruder_count = std::max<int>(1, nozzle_diameters == nullptr ? 1 : int(nozzle_diameters->values.size()));
+    auto *extruder_row = new wxBoxSizer(wxHORIZONTAL);
+    extruder_row->Add(new wxStaticText(scroll, wxID_ANY, _L("Pane extruder")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+    m_pane_extruder = new wxSpinCtrl(scroll, wxID_ANY);
+    m_pane_extruder->SetRange(1, extruder_count);
+    m_pane_extruder->SetValue(1);
+    extruder_row->Add(m_pane_extruder, 0, wxRIGHT, FromDIP(18));
+    extruder_row->Add(new wxStaticText(scroll, wxID_ANY, _L("Label extruder")), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, FromDIP(6));
+    m_label_extruder = new wxSpinCtrl(scroll, wxID_ANY);
+    m_label_extruder->SetRange(1, extruder_count);
+    m_label_extruder->SetValue(1);
+    extruder_row->Add(m_label_extruder, 0);
+    geometry_box->Add(extruder_row, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
+    content->Add(geometry_box, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(8));
+
+    m_preview = new wxStaticText(scroll, wxID_ANY, wxEmptyString);
+    m_preview->Wrap(FromDIP(700));
+    content->Add(m_preview, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(12));
+    auto *warning = new wxStaticText(scroll, wxID_ANY,
+        _L("Regional temperature changes are nonblocking. Small modifier or layer-range regions may finish before the nozzle stabilizes."));
+    warning->SetForegroundColour(wxColour(180, 90, 0));
+    warning->Wrap(FromDIP(700));
+    content->Add(warning, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(12));
+    outer->Add(scroll, 1, wxEXPAND);
+
+    auto *buttons = new DialogButtons(this, {"Generate"});
+    m_generate = buttons->GetOK();
+    m_generate->Bind(wxEVT_BUTTON, &Pane_Calibration_Dlg::on_start, this);
+    outer->Add(buttons, 0, wxEXPAND);
+
+    auto refresh = [this](wxCommandEvent &) { refresh_preview(); };
+    m_design->Bind(wxEVT_CHOICE, refresh);
+    m_taguchi_levels->Bind(wxEVT_SPINCTRL, refresh);
+    for (FactorControls &factor : m_factors) {
+        factor.enabled->Bind(wxEVT_CHECKBOX, refresh);
+        factor.minimum->Bind(wxEVT_SPINCTRLDOUBLE, refresh);
+        factor.maximum->Bind(wxEVT_SPINCTRLDOUBLE, refresh);
+        factor.levels->Bind(wxEVT_SPINCTRL, refresh);
+    }
+    for (wxSpinCtrlDouble *control : {m_pane_width, m_pane_depth, m_pane_height, m_pane_gap, m_glyph_height, m_label_relief})
+        control->Bind(wxEVT_SPINCTRLDOUBLE, refresh);
+    m_mouse_ears->Bind(wxEVT_CHECKBOX, refresh);
+    m_labels->Bind(wxEVT_CHECKBOX, refresh);
+    m_pane_extruder->Bind(wxEVT_SPINCTRL, refresh);
+    m_label_extruder->Bind(wxEVT_SPINCTRL, refresh);
+
+    const std::string section = m_tool == PaneCalibrationTool::ClearFilament ? "clear_filament_calibration" : "ironing_calibration";
+    auto load_integer = [&](const std::string &key, int fallback) {
+        const std::string value = wxGetApp().app_config->get(section, key);
+        try { return value.empty() ? fallback : std::stoi(value); } catch (...) { return fallback; }
+    };
+    auto load_double = [&](const std::string &key, double fallback) {
+        const std::string value = wxGetApp().app_config->get(section, key);
+        try { return value.empty() ? fallback : std::stod(value); } catch (...) { return fallback; }
+    };
+    m_design->SetSelection(std::clamp(load_integer("design", m_design->GetSelection()), 0, 2));
+    m_taguchi_levels->SetValue(load_integer("taguchi_levels", m_taguchi_levels->GetValue()));
+    for (FactorControls &factor : m_factors) {
+        const std::string prefix = pane_calibration_factor_key(factor.factor) + "_";
+        factor.enabled->SetValue(load_integer(prefix + "enabled", factor.enabled->GetValue()) != 0);
+        if (!pane_factor_is_categorical(factor.factor)) {
+            factor.minimum->SetValue(load_double(prefix + "minimum", factor.minimum->GetValue()));
+            factor.maximum->SetValue(load_double(prefix + "maximum", factor.maximum->GetValue()));
+        }
+        factor.levels->SetValue(load_integer(prefix + "levels", factor.levels->GetValue()));
+    }
+    m_pane_width->SetValue(load_double("pane_width", m_pane_width->GetValue()));
+    m_pane_depth->SetValue(load_double("pane_depth", m_pane_depth->GetValue()));
+    m_pane_height->SetValue(load_double("pane_height", m_pane_height->GetValue()));
+    m_pane_gap->SetValue(load_double("pane_gap", m_pane_gap->GetValue()));
+    m_mouse_ears->SetValue(load_integer("mouse_ears", 0) != 0);
+    m_labels->SetValue(load_integer("labels", 0) != 0);
+    m_glyph_height->SetValue(load_double("glyph_height", m_glyph_height->GetValue()));
+    m_label_relief->SetValue(load_double("label_relief", m_label_relief->GetValue()));
+    m_pane_extruder->SetValue(load_integer("pane_extruder", 1));
+    m_label_extruder->SetValue(load_integer("label_extruder", 1));
+
+    wxGetApp().UpdateDlgDarkUI(this);
+    refresh_preview();
+    CentreOnParent();
+}
+
+PaneCalibrationConfig Pane_Calibration_Dlg::read_config() const
+{
+    PaneCalibrationConfig config = default_pane_calibration_config(m_tool);
+    config.design = m_design->GetSelection() == 0 ? PaneCalibrationDesign::Linear :
+                    m_design->GetSelection() == 1 ? PaneCalibrationDesign::Grid : PaneCalibrationDesign::Taguchi;
+    config.taguchi_levels = unsigned(m_taguchi_levels->GetValue());
+    config.factors.clear();
+    for (const FactorControls &controls : m_factors)
+        config.factors.push_back({controls.factor, controls.enabled->GetValue(), controls.minimum->GetValue(),
+                                  controls.maximum->GetValue(), unsigned(controls.levels->GetValue())});
+    config.pane_width = m_pane_width->GetValue();
+    config.pane_depth = m_pane_depth->GetValue();
+    config.pane_height = m_pane_height->GetValue();
+    config.pane_gap = m_pane_gap->GetValue();
+    config.mouse_ears = m_mouse_ears->GetValue();
+    config.labels = m_labels->GetValue();
+    config.label_glyph_height = m_glyph_height->GetValue();
+    config.label_relief = m_label_relief->GetValue();
+    config.pane_extruder = m_pane_extruder->GetValue();
+    config.label_extruder = m_label_extruder->GetValue();
+    return config;
+}
+
+void Pane_Calibration_Dlg::refresh_preview()
+{
+    m_taguchi_levels->Enable(m_design->GetSelection() == 2);
+    const bool common_levels = m_design->GetSelection() == 2;
+    for (FactorControls &factor : m_factors)
+        factor.levels->Enable(!common_levels);
+    m_glyph_height->Enable(m_labels->GetValue());
+    m_label_relief->Enable(m_labels->GetValue());
+    m_label_extruder->Enable(m_labels->GetValue());
+    try {
+        const PaneCalibrationPlan plan = build_pane_calibration_plan(read_config());
+        m_preview->SetLabel(wxString::Format(_L("%s · %zu panes · row-major sequential order"),
+                                             from_u8(plan.array_name), plan.rows.size()));
+        m_preview->SetForegroundColour(GetForegroundColour());
+        m_generate->Enable(true);
+    } catch (const std::exception &error) {
+        m_preview->SetLabel(from_u8(error.what()));
+        m_preview->SetForegroundColour(wxColour(190, 45, 45));
+        m_generate->Enable(false);
+    }
+    Layout();
+}
+
+void Pane_Calibration_Dlg::on_start(wxCommandEvent &)
+{
+    const PaneCalibrationConfig config = read_config();
+    const std::string section = m_tool == PaneCalibrationTool::ClearFilament ? "clear_filament_calibration" : "ironing_calibration";
+    wxGetApp().app_config->set(section, "design", std::to_string(m_design->GetSelection()));
+    wxGetApp().app_config->set(section, "taguchi_levels", std::to_string(config.taguchi_levels));
+    for (const PaneCalibrationFactorSetting &factor : config.factors) {
+        const std::string prefix = pane_calibration_factor_key(factor.factor) + "_";
+        wxGetApp().app_config->set(section, prefix + "enabled", factor.enabled ? "1" : "0");
+        wxGetApp().app_config->set(section, prefix + "minimum", std::to_string(factor.minimum));
+        wxGetApp().app_config->set(section, prefix + "maximum", std::to_string(factor.maximum));
+        wxGetApp().app_config->set(section, prefix + "levels", std::to_string(factor.levels));
+    }
+    wxGetApp().app_config->set(section, "pane_width", std::to_string(config.pane_width));
+    wxGetApp().app_config->set(section, "pane_depth", std::to_string(config.pane_depth));
+    wxGetApp().app_config->set(section, "pane_height", std::to_string(config.pane_height));
+    wxGetApp().app_config->set(section, "pane_gap", std::to_string(config.pane_gap));
+    wxGetApp().app_config->set(section, "mouse_ears", config.mouse_ears ? "1" : "0");
+    wxGetApp().app_config->set(section, "labels", config.labels ? "1" : "0");
+    wxGetApp().app_config->set(section, "glyph_height", std::to_string(config.label_glyph_height));
+    wxGetApp().app_config->set(section, "label_relief", std::to_string(config.label_relief));
+    wxGetApp().app_config->set(section, "pane_extruder", std::to_string(config.pane_extruder));
+    wxGetApp().app_config->set(section, "label_extruder", std::to_string(config.label_extruder));
+    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+    const auto *temperature_low = full_config.opt<ConfigOptionInts>("nozzle_temperature_range_low");
+    const auto *temperature_high = full_config.opt<ConfigOptionInts>("nozzle_temperature_range_high");
+    for (const PaneCalibrationFactorSetting &factor : config.factors) {
+        if (!factor.enabled || factor.factor != PaneCalibrationFactor::NozzleTemperature ||
+            temperature_low == nullptr || temperature_high == nullptr)
+            continue;
+        const size_t extruder = size_t(std::max(config.pane_extruder, 1) - 1);
+        const int low = temperature_low->get_at(extruder);
+        const int high = temperature_high->get_at(extruder);
+        if (factor.minimum < low || factor.maximum > high) {
+            MessageDialog confirm(this,
+                wxString::Format(_L("The requested temperature range %.0f–%.0f °C is outside the active filament range %d–%d °C. Continue?"),
+                                 factor.minimum, factor.maximum, low, high),
+                _L("Temperature safety warning"), wxICON_WARNING | wxYES_NO);
+            if (confirm.ShowModal() != wxID_YES)
+                return;
+        }
+    }
+    m_plater->calib_panes(config);
+    EndModal(wxID_OK);
+}
+
+void Pane_Calibration_Dlg::on_dpi_changed(const wxRect &)
+{
+    Refresh();
+    Layout();
+}
+
 }} // namespace Slic3r::GUI

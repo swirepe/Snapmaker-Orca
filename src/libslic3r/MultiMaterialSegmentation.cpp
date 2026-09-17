@@ -2252,4 +2252,21 @@ std::vector<std::vector<ExPolygons>> fuzzy_skin_segmentation_by_painting(const P
     return segmentation_by_painting(print_object, extract_facets_info, num_facets_states, max_external_perimeter_width, 0.f, false, IncludeTopAndBottomLayers::No, throw_on_cancel_callback);
 }
 
+std::vector<std::vector<ExPolygons>> ironing_segmentation_by_painting(
+    const PrintObject &print_object, const std::function<void()> &throw_on_cancel_callback)
+{
+    const auto extract_facets_info = [](const ModelVolume &volume) -> ModelVolumeFacetsInfo {
+        return {volume.ironing_facets, volume.is_ironing_painted(), false};
+    };
+
+    float maximum_width = 0.f;
+    for (size_t region_index = 0; region_index < print_object.num_printing_regions(); ++region_index) {
+        const PrintRegion &region = print_object.printing_region(region_index);
+        maximum_width = std::max<float>(maximum_width,
+            region.flow(print_object, frExternalPerimeter, print_object.config().layer_height).width());
+    }
+    return segmentation_by_painting(print_object, extract_facets_info, 2, maximum_width, 0.f, false,
+                                    IncludeTopAndBottomLayers::Yes, throw_on_cancel_callback);
+}
+
 } // namespace Slic3r

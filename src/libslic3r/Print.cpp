@@ -647,6 +647,11 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
         "support_material_interface_fan_speed",
         "internal_bridge_fan_speed", // ORCA: Add support for separate internal bridge fan speed control
         "ironing_fan_speed",
+        "nozzle_temperature_override",
+        "fan_speed_override",
+        "wall_fan_speed_override",
+        "ironing_fan_speed_override",
+        "auxiliary_fan_speed_override",
         "single_extruder_multi_material_priming",
         "activate_air_filtration",
         "during_print_exhaust_fan_speed",
@@ -2396,6 +2401,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
             if (!model_volume1.mmu_segmentation_facets.equals(model_volume2.mmu_segmentation_facets))
                 return false;
             if (!model_volume1.fuzzy_skin_facets.equals(model_volume2.fuzzy_skin_facets))
+                return false;
+            if (!model_volume1.ironing_facets.equals(model_volume2.ironing_facets))
                 return false;
             if (model_volume1.config.get() != model_volume2.config.get())
                 return false;

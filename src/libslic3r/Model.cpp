@@ -1461,6 +1461,11 @@ bool ModelObject::is_fuzzy_skin_painted() const
     return std::any_of(this->volumes.cbegin(), this->volumes.cend(), [](const ModelVolume *mv) { return mv->is_fuzzy_skin_painted(); });
 }
 
+bool ModelObject::is_ironing_painted() const
+{
+    return std::any_of(this->volumes.cbegin(), this->volumes.cend(), [](const ModelVolume *mv) { return mv->is_ironing_painted(); });
+}
+
 void ModelObject::sort_volumes(bool full_sort)
 {
     // sort volumes inside the object to order "Model Part, Negative Volume, Modifier, Support Blocker and Support Enforcer. "
@@ -1964,6 +1969,7 @@ void ModelObject::convert_units(ModelObjectPtrs& new_objects, ConversionType con
             vol->seam_facets.assign(volume->seam_facets);
             vol->mmu_segmentation_facets.assign(volume->mmu_segmentation_facets);
             vol->fuzzy_skin_facets.assign(volume->fuzzy_skin_facets);
+            vol->ironing_facets.assign(volume->ironing_facets);
 
             // Perform conversion only if the target "imperial" state is different from the current one.
             // This check supports conversion of "mixed" set of volumes, each with different "imperial" state.
@@ -2076,6 +2082,7 @@ void ModelVolume::reset_extra_facets()
     this->seam_facets.reset();
     this->mmu_segmentation_facets.reset();
     this->fuzzy_skin_facets.reset();
+    this->ironing_facets.reset();
 }
 
 static void invalidate_translations(ModelObject* object, const ModelInstance* src_instance)
@@ -2853,6 +2860,7 @@ size_t ModelVolume::split(unsigned int max_extruders)
             this->supported_facets.reset();
             this->seam_facets.reset();
             this->fuzzy_skin_facets.reset();
+            this->ironing_facets.reset();
         }
         else
             this->object->volumes.insert(this->object->volumes.begin() + (++ivolume), new ModelVolume(object, *this, std::move(mesh)));
@@ -2914,6 +2922,7 @@ void ModelVolume::assign_new_unique_ids_recursive()
     seam_facets.set_new_unique_id();
     mmu_segmentation_facets.set_new_unique_id();
     fuzzy_skin_facets.set_new_unique_id();
+    ironing_facets.set_new_unique_id();
 }
 
 void ModelVolume::rotate(double angle, Axis axis)
@@ -3792,6 +3801,15 @@ bool model_fuzzy_skin_data_changed(const ModelObject &mo, const ModelObject &mo_
     return model_property_changed(mo, mo_new,
         [](const ModelVolumeType t) { return t == ModelVolumeType::MODEL_PART; },
         [](const ModelVolume &mv_old, const ModelVolume &mv_new){ return mv_old.fuzzy_skin_facets.timestamp_matches(mv_new.fuzzy_skin_facets); });
+}
+
+bool model_ironing_data_changed(const ModelObject &mo, const ModelObject &mo_new)
+{
+    return model_property_changed(mo, mo_new,
+        [](const ModelVolumeType type) { return type == ModelVolumeType::MODEL_PART; },
+        [](const ModelVolume &old_volume, const ModelVolume &new_volume) {
+            return old_volume.ironing_facets.timestamp_matches(new_volume.ironing_facets);
+        });
 }
 
 bool model_brim_points_data_changed(const ModelObject& mo, const ModelObject& mo_new)

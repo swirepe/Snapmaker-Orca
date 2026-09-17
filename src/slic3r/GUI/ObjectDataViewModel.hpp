@@ -62,6 +62,7 @@ enum class InfoItemType
     //CustomSeam,
     MmSegmentation,
     FuzzySkin,
+    Ironing,
     //Sinking
     CutConnectors,
 };

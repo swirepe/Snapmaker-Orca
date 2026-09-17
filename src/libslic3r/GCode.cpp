@@ -2157,6 +2157,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
     m_max_layer_z  = 0.f;
     m_last_width   = 0.f;
     m_is_role_based_fan_on.fill(false);
+    this->reset_region_process_overrides(false);
 #if ENABLE_GCODE_VIEWER_DATA_CHECKING
     m_last_mm3_per_mm = 0.;
 #endif // ENABLE_GCODE_VIEWER_DATA_CHECKING
@@ -2870,6 +2871,11 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
 
         // Do all objects for each layer.
         if (print.config().print_sequence == PrintSequence::ByObject && !has_wipe_tower) {
+            const bool two_phase_pane_labels =
+                (print.calib_mode() == CalibMode::Calib_Clear_Filament || print.calib_mode() == CalibMode::Calib_Ironing) &&
+                print.calib_params().pane_config.labels &&
+                print.calib_params().pane_config.pane_extruder != print.calib_params().pane_config.label_extruder;
+            const double pane_body_height = print.calib_params().pane_config.pane_height;
             size_t             finished_objects = 0;
             const PrintObject* prev_object      = (*print_object_instance_sequential_active)->print_object;
             for (; print_object_instance_sequential_active != print_object_instances_ordering.end();
@@ -2927,7 +2933,12 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
                 // Process all layers of a single object instance (sequential mode) with a parallel pipeline:
                 // Generate G-code, run the filters (vase mode, cooling buffer), run the G-code analyser
                 // and export G-code into file.
-                this->process_layers(print, tool_ordering, collect_layers_to_print(object),
+                std::vector<LayerToPrint> object_layers = collect_layers_to_print(object);
+                if (two_phase_pane_labels)
+                    object_layers.erase(std::remove_if(object_layers.begin(), object_layers.end(),
+                        [pane_body_height](const LayerToPrint &layer) { return layer.print_z() > pane_body_height + EPSILON; }),
+                        object_layers.end());
+                this->process_layers(print, tool_ordering, std::move(object_layers),
                                      *print_object_instance_sequential_active - object.instances().data(), file, prime_extruder);
                 // BBS: close powerlost recovery
                 {
@@ -2941,6 +2952,22 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
                 // Reset it when starting another object from 1st layer.
                 m_second_layer_things_done = false;
                 prev_object                = &object;
+            }
+
+            if (two_phase_pane_labels) {
+                auto label_layers = collect_layers_to_print(print);
+                label_layers.erase(std::remove_if(label_layers.begin(), label_layers.end(),
+                    [pane_body_height](const auto &layer) { return layer.first <= pane_body_height + EPSILON; }), label_layers.end());
+                if (!label_layers.empty()) {
+                    const unsigned label_extruder = unsigned(print.calib_params().pane_config.label_extruder - 1);
+                    file.write(this->set_extruder(label_extruder, label_layers.front().first, true));
+                    this->set_origin(0., 0.);
+                    m_cooling_buffer->reset(this->writer().get_position());
+                    m_cooling_buffer->set_current_extruder(label_extruder);
+                    this->reset_region_process_overrides(false);
+                    ToolOrdering label_tool_ordering(print, label_extruder);
+                    this->process_layers(print, label_tool_ordering, print_object_instances_ordering, label_layers, file);
+                }
             }
         } else {
             // Sort layers by Z.
@@ -3243,6 +3270,9 @@ void GCode::process_layers(const Print&              print,
                            // BBS
                            const bool prime_extruder)
 {
+    // A sequential object is a physical temperature-stabilization boundary.
+    // Its first effective regional temperature is emitted with a wait.
+    this->reset_region_process_overrides(true);
     // The pipeline is variable: The vase mode filter is optional.
     size_t     layer_to_print_idx = 0;
     const auto generator =
@@ -7409,9 +7439,78 @@ bool GCode::_needSAFC(const ExtrusionPath& path)
     });
 }
 
+void GCode::reset_region_process_overrides(bool wait_for_temperature)
+{
+    m_last_region_temperature          = -1;
+    m_last_region_temperature_extruder = -1;
+    m_last_region_fan_speed         = -2;
+    m_last_region_auxiliary_fan_speed = -2;
+    m_region_temperature_initialized = false;
+    m_wait_for_region_temperature     = wait_for_temperature;
+}
+
+std::string GCode::set_region_process_overrides(ExtrusionRole role)
+{
+    if (m_writer.extruder() == nullptr)
+        return {};
+
+    std::string gcode;
+    const int extruder_id = int(m_writer.extruder()->id());
+    const bool first_extrusion = !m_region_temperature_initialized;
+    if (extruder_id != m_last_region_temperature_extruder) {
+        m_last_region_temperature = -1;
+        m_last_region_temperature_extruder = extruder_id;
+    }
+
+    const int configured_temperature = m_config.nozzle_temperature_override.value;
+    if (configured_temperature > 0) {
+        if (configured_temperature != m_last_region_temperature) {
+            const bool wait = first_extrusion && m_wait_for_region_temperature;
+            gcode += m_writer.set_temperature(unsigned(configured_temperature), wait, extruder_id);
+            m_last_region_temperature = configured_temperature;
+        }
+    } else if (m_last_region_temperature >= 0) {
+        const int inherited_temperature = this->on_first_layer() ?
+            get_value_at(m_config, m_config.nozzle_temperature_initial_layer, ConfigFlowDomain::Filament, extruder_id) :
+            get_value_at(m_config, m_config.nozzle_temperature, ConfigFlowDomain::Filament, extruder_id);
+        if (inherited_temperature > 0)
+            gcode += m_writer.set_temperature(unsigned(inherited_temperature), false, extruder_id);
+        m_last_region_temperature = -1;
+    }
+    m_region_temperature_initialized = true;
+    m_wait_for_region_temperature = false;
+
+    int effective_fan_speed = m_config.fan_speed_override.value;
+    if (is_perimeter(role) && m_config.wall_fan_speed_override.value >= 0)
+        effective_fan_speed = m_config.wall_fan_speed_override.value;
+    if (role == erIroning && m_config.ironing_fan_speed_override.value >= 0)
+        effective_fan_speed = m_config.ironing_fan_speed_override.value;
+
+    if (effective_fan_speed != m_last_region_fan_speed) {
+        if (effective_fan_speed >= 0)
+            gcode += m_writer.set_fan(unsigned(effective_fan_speed));
+        else if (m_last_region_fan_speed >= 0)
+            gcode += ";_FORCE_RESUME_FAN_SPEED\n";
+        m_last_region_fan_speed = effective_fan_speed;
+    }
+
+    if (m_config.auxiliary_fan.value) {
+        int effective_auxiliary_fan_speed = m_config.auxiliary_fan_speed_override.value;
+        if (effective_auxiliary_fan_speed < 0)
+            effective_auxiliary_fan_speed = get_value_at(
+                m_config, m_config.additional_cooling_fan_speed, ConfigFlowDomain::Filament, extruder_id);
+        if (effective_auxiliary_fan_speed != m_last_region_auxiliary_fan_speed) {
+            gcode += GCodeWriter::set_additional_fan(unsigned(effective_auxiliary_fan_speed));
+            m_last_region_auxiliary_fan_speed = effective_auxiliary_fan_speed;
+        }
+    }
+
+    return gcode;
+}
+
 std::string GCode::_extrude(const ExtrusionPath& path, std::string description, double speed)
 {
-    std::string gcode;
+    std::string gcode = this->set_region_process_overrides(path.role());
 
     if (is_bridge(path.role()))
         description += " (bridge)";
@@ -7892,12 +7991,16 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
             }
         }
     };
-    auto apply_role_based_fan_speed = [&path, &append_role_based_fan_marker,
+    auto apply_role_based_fan_speed = [this, &path, &append_role_based_fan_marker,
                                        supp_interface_fan_speed = EXTRUDER_CONFIG(support_material_interface_fan_speed),
                                        ironing_fan_speed        = EXTRUDER_CONFIG(ironing_fan_speed)] {
         append_role_based_fan_marker(erSupportMaterialInterface, "_SUPP_INTERFACE"sv,
                                      supp_interface_fan_speed >= 0 && path.role() == erSupportMaterialInterface);
-        append_role_based_fan_marker(erIroning, "_IRONING"sv, ironing_fan_speed >= 0 && path.role() == erIroning);
+        // A regional ironing override is emitted directly and takes precedence
+        // over the filament-wide role marker.
+        append_role_based_fan_marker(erIroning, "_IRONING"sv,
+                                     m_config.ironing_fan_speed_override.value < 0 && ironing_fan_speed >= 0 &&
+                                         path.role() == erIroning);
     };
 
     if (!variable_speed) {

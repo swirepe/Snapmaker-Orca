@@ -5177,6 +5177,20 @@ void apply_fuzzy_skin_segmentation(PrintObject &print_object, ThrowOnCancel thro
     }); // end of parallel_for
 }
 
+template<typename ThrowOnCancel>
+void apply_ironing_segmentation(PrintObject &print_object, ThrowOnCancel throw_on_cancel)
+{
+    std::vector<std::vector<ExPolygons>> segmentation = ironing_segmentation_by_painting(print_object, throw_on_cancel);
+    assert(segmentation.size() == print_object.layer_count());
+    for (size_t layer_index = 0; layer_index < segmentation.size(); ++layer_index) {
+        throw_on_cancel();
+        assert(segmentation[layer_index].size() >= 2);
+        Layer *layer = print_object.get_layer(int(layer_index));
+        layer->ironing_painting_active = true;
+        layer->ironing_painted_areas = std::move(segmentation[layer_index][1]);
+    }
+}
+
 // 1) Decides Z positions of the layers,
 // 2) Initializes layers and their regions
 // 3) Slices the object meshes
@@ -5298,6 +5312,11 @@ void PrintObject::slice_volumes()
 
         BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - Fuzzy skin segmentation";
         apply_fuzzy_skin_segmentation(*this, [print]() { print->throw_if_canceled(); });
+    }
+
+    if (this->model_object()->is_ironing_painted()) {
+        BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - Ironing segmentation";
+        apply_ironing_segmentation(*this, [print]() { print->throw_if_canceled(); });
     }
 
     apply_surface_emboss_mixed_region_override(*this, [print]() { print->throw_if_canceled(); });

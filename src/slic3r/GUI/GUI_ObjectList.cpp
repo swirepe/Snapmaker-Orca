@@ -2572,6 +2572,13 @@ void ObjectList::del_info_item(const int obj_idx, InfoItemType type)
             mv->fuzzy_skin_facets.reset();
         break;
 
+    case InfoItemType::Ironing:
+        cnv->get_gizmos_manager().reset_all_states();
+        Plater::TakeSnapshot(plater, _u8L("Remove paint-on ironing"));
+        for (ModelVolume *volume : (*m_objects)[obj_idx]->volumes)
+            volume->ironing_facets.reset();
+        break;
+
     // BBS: remove Sinking
     case InfoItemType::Undef : assert(false); break;
     }
@@ -3503,10 +3510,12 @@ void ObjectList::part_selection_changed()
                     //case InfoItemType::CustomSeam:
                     case InfoItemType::MmSegmentation:
                     case InfoItemType::FuzzySkin:
+                    case InfoItemType::Ironing:
                     {
                         GLGizmosManager::EType gizmo_type = info_type == InfoItemType::CustomSupports ? GLGizmosManager::EType::FdmSupports :
                                                             /*info_type == InfoItemType::CustomSeam ? GLGizmosManager::EType::Seam :*/
-                                                            info_type == InfoItemType::FuzzySkin        ? GLGizmosManager::EType::FuzzySkin :
+                                                            info_type == InfoItemType::FuzzySkin ? GLGizmosManager::EType::FuzzySkin :
+                                                            info_type == InfoItemType::Ironing ? GLGizmosManager::EType::Ironing :
                                                             GLGizmosManager::EType::MmSegmentation;
                         GLGizmosManager& gizmos_mgr = wxGetApp().plater()->get_view3D_canvas3D()->get_gizmos_manager();
                         if (gizmos_mgr.get_current_type() != gizmo_type)
@@ -3733,6 +3742,26 @@ void ObjectList::update_info_items(size_t obj_idx, wxDataViewItemArray* selectio
                 Select(item_obj);
         }
     }
+
+    auto update_paint_info = [&](InfoItemType type, bool should_show) {
+        wxDataViewItem item = m_objects_model->GetInfoItemByType(item_obj, type);
+        const bool shows = item.IsOk();
+        if (!shows && should_show) {
+            m_objects_model->AddInfoChild(item_obj, type);
+            Expand(item_obj);
+        } else if (shows && !should_show) {
+            if (!selections)
+                Unselect(item);
+            m_objects_model->Delete(item);
+            if (selections && selections->Index(item) != wxNOT_FOUND) {
+                selections->Remove(item);
+                if (selections->Index(item_obj) == wxNOT_FOUND)
+                    selections->Add(item_obj);
+            }
+        }
+    };
+    update_paint_info(InfoItemType::FuzzySkin, printer_technology() == ptFFF && model_object->is_fuzzy_skin_painted());
+    update_paint_info(InfoItemType::Ironing, printer_technology() == ptFFF && model_object->is_ironing_painted());
 
     {
         bool shows = m_objects_model->IsSupportPainted(item_obj);

@@ -82,6 +82,7 @@ enum class IroningType {
     TopSurfaces,
     TopmostOnly,
     AllSolid,
+    EveryOtherLayer,
     Count,
 };
 
@@ -1087,6 +1088,13 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat, ironing_direction))
     ((ConfigOptionFloats, ironing_speed))
     ((ConfigOptionFloat, ironing_angle))
+    // Region-aware process overrides. Sentinel values inherit the active
+    // filament setting (0 for temperature, -1 for fan speeds).
+    ((ConfigOptionInt, nozzle_temperature_override))
+    ((ConfigOptionInt, fan_speed_override))
+    ((ConfigOptionInt, wall_fan_speed_override))
+    ((ConfigOptionInt, ironing_fan_speed_override))
+    ((ConfigOptionInt, auxiliary_fan_speed_override))
     // Detect bridging perimeters
     ((ConfigOptionBool, detect_overhang_wall))
     ((ConfigOptionInt, wall_filament))

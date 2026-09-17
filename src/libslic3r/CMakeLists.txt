@@ -84,6 +84,8 @@ set(lisbslic3r_sources
     BuildVolume.hpp
     calib.cpp
     calib.hpp
+    PaneCalibration.cpp
+    PaneCalibration.hpp
     Circle.cpp
     Circle.hpp
     clipper.cpp

@@ -1527,8 +1527,12 @@ void Layer::make_ironing()
 		if (! layerm->slices.empty()) {
 			IroningParams ironing_params;
 			const PrintRegionConfig &config = layerm->region().config();
-			if (config.ironing_type != IroningType::NoIroning &&
-			    (config.ironing_type == IroningType::AllSolid ||
+			const bool alternate_layer = config.ironing_type == IroningType::EveryOtherLayer;
+			const bool alternate_layer_selected = alternate_layer &&
+			    ((((this->id() + 1) % 2) == 0) || layerm->layer()->upper_layer == nullptr);
+			if ((config.ironing_type != IroningType::NoIroning || this->ironing_painting_active) &&
+			    (config.ironing_type == IroningType::AllSolid || alternate_layer_selected ||
+			        this->ironing_painting_active ||
 				    ((config.top_shell_layers > 0 || (this->object()->print()->config().spiral_mode && config.bottom_shell_layers > 1)) &&
 					    (config.ironing_type == IroningType::TopSurfaces ||
 					        (config.ironing_type == IroningType::TopmostOnly && layerm->layer()->upper_layer == nullptr))))) {
@@ -1595,7 +1599,9 @@ void Layer::make_ironing()
 			for (size_t k = i; k < j; ++ k) {
 				const IroningParams		 &ironing_params  = by_extruder[k];
 				const PrintRegionConfig  &region_config   = ironing_params.layerm->region().config();
-				bool					  iron_everything = region_config.ironing_type == IroningType::AllSolid;
+				const bool alternate_layer = region_config.ironing_type == IroningType::EveryOtherLayer;
+				bool iron_everything = region_config.ironing_type == IroningType::AllSolid || this->ironing_painting_active ||
+				                       (alternate_layer && (((this->id() + 1) % 2) == 0));
 				bool					  iron_completely = iron_everything;
 				if (iron_everything) {
 					// Check whether there is any non-solid hole in the regions.
@@ -1639,6 +1645,9 @@ void Layer::make_ironing()
             double ironing_areas_offset = ironing_params.inset == 0 ? float(scale_(0.5 * nozzle_dmr)) : scale_(ironing_params.inset);
 			ironing_areas = intersection_ex(polys, offset(this->lslices, - ironing_areas_offset));
 		}
+
+		if (this->ironing_painting_active)
+			ironing_areas = intersection_ex(ironing_areas, this->ironing_painted_areas);
 
         // Create the filler object.
         f->spacing = ironing_params.line_spacing;

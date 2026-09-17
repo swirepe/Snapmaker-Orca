@@ -73,6 +73,7 @@ const std::map<InfoItemType, InfoItemAtributes> INFO_ITEMS{
             //{ InfoItemType::Sinking,             {L("Sinking"),                 "objlist_sinking"}, },
             { InfoItemType::CutConnectors,       {L("Cut connectors"),          "cut_connectors" },    },
             { InfoItemType::FuzzySkin,           {L("Paint-on fuzzy skin"),     "objlist_fuzzy_skin_paint" }, },
+            { InfoItemType::Ironing,             {L("Paint-on ironing"),       "objlist_fuzzy_skin_paint" }, },
 };
 
 ObjectDataViewModelNode::ObjectDataViewModelNode(ObjectDataViewModelNode*   parent,
@@ -2474,5 +2475,4 @@ void ObjectDataViewModel::UpdateCutObjectIcon(const wxDataViewItem &item, bool h
 
 } // namespace GUI
 } // namespace Slic3r
-
 
