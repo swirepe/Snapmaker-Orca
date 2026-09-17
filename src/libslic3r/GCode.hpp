@@ -21,6 +21,7 @@
 #include "GCode/ThumbnailData.hpp"
 #include "libslic3r/ObjectID.hpp"
 #include "GCode/ExtrusionProcessor.hpp"
+#include "ThermalSurfacePatterning.hpp"
 
 #include "GCode/PressureEqualizer.hpp"
 #include "GCode/SmallAreaInfillFlowCompensator.hpp"
@@ -31,6 +32,7 @@
 #include <map>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <cfloat>
 
 namespace Slic3r {
@@ -604,6 +606,22 @@ private:
     std::unique_ptr<WipeTowerIntegration> m_wipe_tower;
 
     std::unique_ptr<SmallAreaInfillFlowCompensator> m_small_area_infill_flow_compensator;
+
+    struct ThermalToolState {
+        int    target {-1};
+        double predicted {0.0};
+        double non_surface_seconds {0.0};
+        double last_surface_seconds {0.0};
+        bool   initialized {false};
+    };
+    struct ThermalTopGroupState {
+        size_t group {0};
+        size_t lines {0};
+        double seconds {0.0};
+    };
+    ThermalPatternGenerator                    m_thermal_pattern_generator;
+    std::vector<ThermalToolState>              m_thermal_pattern_tool_states;
+    std::unordered_map<std::uint64_t, ThermalTopGroupState> m_thermal_pattern_top_groups;
     
     // Heights (print_z) at which the skirt has already been extruded.
     std::vector<coordf_t>               m_skirt_done;
@@ -640,6 +658,9 @@ private:
     int get_bed_temperature_max(const Print& print, const bool is_first_layer) const;
 
     std::string _extrude(const ExtrusionPath &path, std::string description = "", double speed = -1);
+    std::string thermal_pattern_before_path(const ExtrusionPath &path, double &speed);
+    std::string thermal_pattern_restore_tool(size_t tool, const char *reason);
+    std::string thermal_pattern_restore_all();
     bool _needSAFC(const ExtrusionPath &path);
 
     // Snapmaker: flow variant — read a process-domain vector option

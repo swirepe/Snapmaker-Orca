@@ -143,6 +143,26 @@ static t_config_enum_values s_keys_map_FuzzySkinMode {
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(FuzzySkinMode)
 
+static t_config_enum_values s_keys_map_ThermalPatternMode {
+    { "disabled", int(ThermalPatternMode::Disabled) },
+    { "all",      int(ThermalPatternMode::AllSurfaces) },
+    { "painted",  int(ThermalPatternMode::PaintedSurfaces) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(ThermalPatternMode)
+
+static t_config_enum_values s_keys_map_ThermalPatternPreset {
+    { "subtle",   int(ThermalPatternPreset::Subtle) },
+    { "natural",  int(ThermalPatternPreset::Natural) },
+    { "dramatic", int(ThermalPatternPreset::Dramatic) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(ThermalPatternPreset)
+
+static t_config_enum_values s_keys_map_ThermalPatternInternalPolicy {
+    { "strict",  int(ThermalPatternInternalPolicy::Strict) },
+    { "thermal", int(ThermalPatternInternalPolicy::Thermal) },
+};
+CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(ThermalPatternInternalPolicy)
+
 static t_config_enum_values s_keys_map_InfillPattern {
     { "monotonic", ipMonotonic },
     { "monotonicline", ipMonotonicLine },
@@ -2126,6 +2146,30 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloats { 2. });
 
+    def = this->add("thermal_pattern_enabled", coBools);
+    def->label = L("Enable thermal surface patterning");
+    def->tooltip = L("Allow this filament/tool to use thermal surface patterning. Filament names are never inspected.");
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionBools { false });
+
+    def = this->add("thermal_pattern_temperature_step", coFloats);
+    def->label = L("Pattern temperature increment");
+    def->tooltip = L("Temperature added for each positive pattern level.");
+    def->sidetext = "°C";
+    def->min = 0;
+    def->max = 100;
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionFloats { 10.0 });
+
+    def = this->add("thermal_pattern_max_temperature", coInts);
+    def->label = L("Pattern temperature ceiling");
+    def->tooltip = L("Highest target used by thermal patterning. Values above the filament's recommended maximum produce a slicing warning.");
+    def->sidetext = "°C";
+    def->min = 0;
+    def->max = 500;
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionInts { 280 });
+
     def = this->add("machine_load_filament_time", coFloat);
     def->label = L("Filament load time");
     def->tooltip = L("Time to load new filament when switch filament. It's usually applicable for single-extruder multi-material machines. "
@@ -3041,6 +3085,105 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.5));
 
+    def = this->add("thermal_pattern_mode", coEnum);
+    def->label = L("Thermal surface patterning");
+    def->category = L("Others");
+    def->tooltip = L("Vary the nozzle target on selected exposed surfaces. Painted mode limits the effect to facets painted with the thermal-patterning tool.");
+    def->enum_keys_map = &ConfigOptionEnum<ThermalPatternMode>::get_enum_values();
+    def->enum_values = {"disabled", "all", "painted"};
+    def->enum_labels = {L("Disabled"), L("All eligible surfaces"), L("Painted surfaces")};
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::Disabled));
+
+    def = this->add("thermal_pattern_preset", coEnum);
+    def->label = L("Pattern preset");
+    def->category = L("Others");
+    def->tooltip = L("Starting character of the generated thermal pattern. Advanced values remain individually editable.");
+    def->enum_keys_map = &ConfigOptionEnum<ThermalPatternPreset>::get_enum_values();
+    def->enum_values = {"subtle", "natural", "dramatic"};
+    def->enum_labels = {L("Subtle"), L("Natural"), L("Dramatic")};
+    def->mode = comSimple;
+    def->set_default_value(new ConfigOptionEnum<ThermalPatternPreset>(ThermalPatternPreset::Natural));
+
+    auto add_thermal_float = [this, &def](const char *key, const char *label, const char *tooltip,
+                                           double value, double min, double max, const char *sidetext = nullptr) {
+        def = this->add(key, coFloat);
+        def->label = label;
+        def->category = L("Others");
+        def->tooltip = tooltip;
+        def->min = min;
+        def->max = max;
+        def->mode = comAdvanced;
+        if (sidetext != nullptr)
+            def->sidetext = sidetext;
+        def->set_default_value(new ConfigOptionFloat(value));
+    };
+    auto add_thermal_int = [this, &def](const char *key, const char *label, const char *tooltip,
+                                         int value, int min, int max, ConfigOptionMode mode = comAdvanced) {
+        def = this->add(key, coInt);
+        def->label = label;
+        def->category = L("Others");
+        def->tooltip = tooltip;
+        def->min = min;
+        def->max = max;
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionInt(value));
+    };
+    auto add_thermal_bool = [this, &def](const char *key, const char *label, const char *tooltip,
+                                          bool value, ConfigOptionMode mode = comAdvanced) {
+        def = this->add(key, coBool);
+        def->label = label;
+        def->category = L("Others");
+        def->tooltip = tooltip;
+        def->mode = mode;
+        def->set_default_value(new ConfigOptionBool(value));
+    };
+
+    add_thermal_int("thermal_pattern_seed", L("Pattern seed"), L("A fixed seed reproduces the same pattern for an unchanged object."), 1, 0, 2147483647, comSimple);
+    add_thermal_bool("thermal_pattern_outer_walls", L("Pattern outer walls"), L("Apply thermal patterning to eligible outer walls."), true, comSimple);
+    add_thermal_bool("thermal_pattern_top_surfaces", L("Pattern top surfaces"), L("Apply grouped thermal patterning to eligible top surfaces."), true, comSimple);
+    add_thermal_int("thermal_pattern_max_level", L("Maximum pattern level"), L("Highest generated temperature-offset level."), 6, 0, 20);
+    add_thermal_int("thermal_pattern_top_max_level", L("Maximum top-surface level"), L("Highest level used on top surfaces."), 3, 0, 20);
+    add_thermal_float("thermal_pattern_band_median", L("Median band height"), L("Median vertical thickness of generated bands."), 1.2, 0.01, 100.0, "mm");
+    add_thermal_float("thermal_pattern_band_sigma", L("Band variation"), L("Log-normal spread of generated band heights."), 0.60, 0.0, 5.0);
+    add_thermal_float("thermal_pattern_band_min", L("Minimum band height"), L("Minimum vertical band thickness."), 0.36, 0.01, 100.0, "mm");
+    add_thermal_float("thermal_pattern_band_max", L("Maximum band height"), L("Maximum vertical band thickness."), 6.0, 0.01, 500.0, "mm");
+    add_thermal_float("thermal_pattern_dark_band_narrowing", L("Dark-band narrowing"), L("Fractional narrowing applied per positive heat level."), 0.08, 0.0, 1.0);
+    add_thermal_float("thermal_pattern_stay_weight", L("Same-level weight"), L("Relative chance that the next band keeps the same level."), 10.0, 0.0, 1000.0);
+    add_thermal_float("thermal_pattern_adjacent_weight", L("Adjacent-level weight"), L("Relative chance of moving one level."), 7.0, 0.0, 1000.0);
+    add_thermal_float("thermal_pattern_two_away_weight", L("Two-level weight"), L("Relative chance of moving two levels."), 2.0, 0.0, 1000.0);
+    add_thermal_float("thermal_pattern_far_weight", L("Far-level weight"), L("Relative chance of a larger level transition."), 0.05, 0.0, 1000.0);
+    add_thermal_float("thermal_pattern_darkness_bias", L("Darkness bias"), L("Per-level probability multiplier; values below one make hotter bands rarer."), 0.75, 0.001, 10.0);
+    add_thermal_float("thermal_pattern_trend_persistence", L("Trend persistence"), L("Persistence of slow lighter/darker drift."), 0.88, 0.0, 0.999);
+    add_thermal_float("thermal_pattern_trend_strength", L("Trend strength"), L("How strongly slow drift biases transitions."), 0.65, 0.0, 10.0);
+    add_thermal_float("thermal_pattern_accent_chance", L("Accent chance"), L("Chance of inserting a thin hotter accent band."), 0.08, 0.0, 1.0);
+    add_thermal_int("thermal_pattern_accent_boost", L("Accent level boost"), L("Extra levels used by accent bands."), 2, 0, 20);
+    add_thermal_float("thermal_pattern_accent_min", L("Minimum accent height"), L("Minimum accent-band thickness."), 0.24, 0.01, 100.0, "mm");
+    add_thermal_float("thermal_pattern_accent_max", L("Maximum accent height"), L("Maximum accent-band thickness."), 0.48, 0.01, 100.0, "mm");
+    add_thermal_float("thermal_pattern_top_group_min_time", L("Top group minimum time"), L("Minimum estimated duration of a top-surface shade group."), 1.5, 0.0, 120.0, "s");
+    add_thermal_int("thermal_pattern_top_group_max_lines", L("Top group maximum lines"), L("Maximum raster lines in one top-surface shade group."), 64, 1, 10000);
+    add_thermal_float("thermal_pattern_heat_tau", L("Heating time constant"), L("First-order hotend heating time constant."), 5.0, 0.01, 120.0, "s");
+    add_thermal_float("thermal_pattern_cool_tau", L("Cooling time constant"), L("First-order hotend cooling time constant."), 7.5, 0.01, 120.0, "s");
+    add_thermal_float("thermal_pattern_tolerance", L("Thermal tolerance"), L("Temperature error considered close enough to the requested target."), 3.0, 0.1, 50.0, "°C");
+    add_thermal_float("thermal_pattern_surface_heat_credit", L("Surface heat credit"), L("Fraction of exposed-surface time that may complete a transition."), 0.75, 0.0, 1.0);
+    add_thermal_float("thermal_pattern_min_base_dwell", L("Minimum base dwell"), L("Minimum worthwhile time near normal temperature between hot surfaces."), 2.0, 0.0, 120.0, "s");
+    add_thermal_float("thermal_pattern_max_preheat", L("Maximum preheat"), L("Maximum reheating allowance in the thermal-policy carry estimate."), 15.0, 0.0, 120.0, "s");
+    add_thermal_bool("thermal_pattern_protect_risky_features", L("Protect risky features"), L("Keep bridges, overhangs, and support interfaces at normal temperature."), true);
+
+    def = this->add("thermal_pattern_internal_policy", coEnum);
+    def->label = L("Internal temperature policy");
+    def->category = L("Others");
+    def->tooltip = L("Strict restores normal temperature across ineligible extrusion. Thermal permits bounded target carry through safe internal moves.");
+    def->enum_keys_map = &ConfigOptionEnum<ThermalPatternInternalPolicy>::get_enum_values();
+    def->enum_values = {"strict", "thermal"};
+    def->enum_labels = {L("Strict"), L("Thermal preheat")};
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionEnum<ThermalPatternInternalPolicy>(ThermalPatternInternalPolicy::Strict));
+
+    add_thermal_bool("thermal_pattern_speed_assist", L("Thermal speed assistance"), L("Slow only eligible outer walls when additional heating time is needed."), true);
+    add_thermal_float("thermal_pattern_speed_max_factor", L("Maximum slowdown factor"), L("Largest permitted thermal-assist slowdown factor."), 4.0, 1.0, 20.0);
+    add_thermal_float("thermal_pattern_speed_min", L("Minimum assisted speed"), L("Thermal assistance never slows below this outer-wall speed."), 30.0, 1.0, 1000.0, "mm/s");
+
     def = this->add("filter_out_gap_fill", coFloat);
     def->label = L("Filter out tiny gaps");
     def->category = L("Layers and Perimeters");
@@ -3807,6 +3950,16 @@ void PrintConfigDef::init_fff_params()
     def->min = 0;
     def->mode = comDevelop;
     def->set_default_value(new ConfigOptionFloats{ 0., 0. });
+
+    def = this->add("machine_max_nozzle_temperature", coInts);
+    def->full_label = L("Maximum nozzle temperature");
+    def->category = L("Machine limits");
+    def->tooltip = L("Hardware temperature ceiling for each tool. Thermal surface patterning never exceeds this value.");
+    def->sidetext = "°C";
+    def->min = 1;
+    def->max = 1000;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionInts { 300 });
 
     // M205 T... [mm/sec]
     def = this->add("machine_min_travel_rate", coFloats);
@@ -6526,6 +6679,7 @@ void PrintConfigDef::init_extruder_option_keys()
         "retract_before_wipe", "retract_restart_extra", "retraction_minimum_travel", "wipe", "wipe_distance",
         "retract_when_changing_layer", "retract_length_toolchange", "retract_restart_extra_toolchange", "extruder_colour",
         "default_filament_profile","retraction_distances_when_cut","long_retractions_when_cut",
+        "machine_max_nozzle_temperature",
         // Snapmaker: flow-variant
         "nozzle_volume_type"
     };
@@ -7301,6 +7455,9 @@ const std::vector<std::string>& filament_flow_variant_options()
         "nozzle_temperature_initial_layer",
         "nozzle_temperature",
         "filament_max_volumetric_speed",
+        "thermal_pattern_enabled",
+        "thermal_pattern_temperature_step",
+        "thermal_pattern_max_temperature",
         "fan_min_speed",
         "fan_max_speed",
         "additional_cooling_fan_speed",

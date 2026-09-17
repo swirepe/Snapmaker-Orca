@@ -5070,10 +5070,11 @@ static bool apply_surface_emboss_mixed_region_override(PrintObject &print_object
 }
 
 template<typename ThrowOnCancel>
-void apply_fuzzy_skin_segmentation(PrintObject &print_object, ThrowOnCancel throw_on_cancel)
+void apply_surface_paint_segmentation(PrintObject &print_object, bool thermal_pattern, ThrowOnCancel throw_on_cancel)
 {
-    // Returns fuzzy skin segmentation based on painting in the fuzzy skin painting gizmo.
-    std::vector<std::vector<ExPolygons>> segmentation = fuzzy_skin_segmentation_by_painting(print_object, throw_on_cancel);
+    std::vector<std::vector<ExPolygons>> segmentation = thermal_pattern ?
+        thermal_pattern_segmentation_by_painting(print_object, throw_on_cancel) :
+        fuzzy_skin_segmentation_by_painting(print_object, throw_on_cancel);
     assert(segmentation.size() == print_object.layer_count());
 
     struct ByRegion
@@ -5082,7 +5083,8 @@ void apply_fuzzy_skin_segmentation(PrintObject &print_object, ThrowOnCancel thro
         bool       needs_merge { false };
     };
 
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, segmentation.size(), std::max(segmentation.size() / 128, size_t(1))), [&print_object, &segmentation, throw_on_cancel](const tbb::blocked_range<size_t> &range) {
+    tbb::parallel_for(tbb::blocked_range<size_t>(0, segmentation.size(), std::max(segmentation.size() / 128, size_t(1))),
+                      [&print_object, &segmentation, thermal_pattern, throw_on_cancel](const tbb::blocked_range<size_t> &range) {
         const auto &layer_ranges   = print_object.shared_regions()->layer_ranges;
         auto        it_layer_range = layer_range_first(layer_ranges, print_object.get_layer(int(range.begin()))->slice_z);
 
@@ -5102,9 +5104,11 @@ void apply_fuzzy_skin_segmentation(PrintObject &print_object, ThrowOnCancel thro
             // Split LayerRegions by painted fuzzy skin regions.
             // layer_range.fuzzy_skin_painted_regions are sorted by parent PrintObject region ID.
             std::vector<ByRegion> by_region(layer.region_count());
-            auto                  it_fuzzy_skin_region_begin = layer_range.fuzzy_skin_painted_regions.cbegin();
+            const auto           &painted_regions = thermal_pattern ? layer_range.thermal_pattern_painted_regions :
+                                                                      layer_range.fuzzy_skin_painted_regions;
+            auto                  it_fuzzy_skin_region_begin = painted_regions.cbegin();
             for (int parent_layer_region_idx = 0; parent_layer_region_idx < layer.region_count(); ++parent_layer_region_idx) {
-                if (it_fuzzy_skin_region_begin == layer_range.fuzzy_skin_painted_regions.cend())
+                if (it_fuzzy_skin_region_begin == painted_regions.cend())
                     continue;
 
                 const LayerRegion &parent_layer_region = *layer.get_region(parent_layer_region_idx);
@@ -5114,11 +5118,11 @@ void apply_fuzzy_skin_segmentation(PrintObject &print_object, ThrowOnCancel thro
                     continue;
 
                 // Find the first FuzzySkinPaintedRegion, which overrides the parent PrintRegion.
-                auto it_fuzzy_skin_region = std::find_if(it_fuzzy_skin_region_begin, layer_range.fuzzy_skin_painted_regions.cend(), [&layer_range, &parent_print_region](const auto &fuzzy_skin_region) {
+                auto it_fuzzy_skin_region = std::find_if(it_fuzzy_skin_region_begin, painted_regions.cend(), [&layer_range, &parent_print_region](const auto &fuzzy_skin_region) {
                     return fuzzy_skin_region.parent_print_object_region_id(layer_range) == parent_print_region.print_object_region_id();
                 });
 
-                if (it_fuzzy_skin_region == layer_range.fuzzy_skin_painted_regions.cend())
+                if (it_fuzzy_skin_region == painted_regions.cend())
                     continue; // This LayerRegion isn't overrides by any FuzzySkinPaintedRegion.
 
                 assert(it_fuzzy_skin_region->parent_print_object_region(layer_range) == &parent_print_region);
@@ -5297,7 +5301,12 @@ void PrintObject::slice_volumes()
         }
 
         BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - Fuzzy skin segmentation";
-        apply_fuzzy_skin_segmentation(*this, [print]() { print->throw_if_canceled(); });
+        apply_surface_paint_segmentation(*this, false, [print]() { print->throw_if_canceled(); });
+    }
+
+    if (this->model_object()->is_thermal_pattern_painted()) {
+        BOOST_LOG_TRIVIAL(debug) << "Slicing volumes - Thermal surface pattern segmentation";
+        apply_surface_paint_segmentation(*this, true, [print]() { print->throw_if_canceled(); });
     }
 
     apply_surface_emboss_mixed_region_override(*this, [print]() { print->throw_if_canceled(); });
