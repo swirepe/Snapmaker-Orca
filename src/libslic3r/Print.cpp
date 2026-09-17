@@ -669,7 +669,9 @@ bool Print::invalidate_state_by_config_options(const ConfigOptionResolver & /* n
     bool invalidated = false;
 
     for (const t_config_option_key &opt_key : opt_keys) {
-        if (steps_gcode.find(opt_key) != steps_gcode.end()) {
+        if (boost::starts_with(opt_key, "thermal_pattern_") || opt_key == "machine_max_nozzle_temperature") {
+            steps.emplace_back(psGCodeExport);
+        } else if (steps_gcode.find(opt_key) != steps_gcode.end()) {
             // These options only affect G-code export or they are just notes without influence on the generated G-code,
             // so there is nothing to invalidate.
             steps.emplace_back(psGCodeExport);
@@ -2115,6 +2117,28 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
         warning->string = L("Filament shrinkage will not be used because filament shrinkage for the used filaments differs significantly.");
         warning->opt_key = "";
     }
+    const bool thermal_pattern_active = m_default_region_config.thermal_pattern_mode.value != ThermalPatternMode::Disabled ||
+        std::any_of(m_print_regions.begin(), m_print_regions.end(), [](const PrintRegion *region) {
+            return region != nullptr && region->config().thermal_pattern_mode.value != ThermalPatternMode::Disabled;
+        });
+    if (warning != nullptr && warning->string.empty() && thermal_pattern_active) {
+        for (unsigned int extruder : extruders) {
+            if (!get_value_at(m_config, m_config.thermal_pattern_enabled, ConfigFlowDomain::Filament, extruder))
+                continue;
+            const int requested = get_value_at(
+                m_config, m_config.thermal_pattern_max_temperature, ConfigFlowDomain::Filament, extruder);
+            const int recommended = get_value_at(
+                m_config, m_config.nozzle_temperature_range_high, ConfigFlowDomain::Filament, extruder);
+            if (requested > recommended) {
+                warning->string = Slic3r::format(
+                    L("Thermal surface patterning for tool %1% may reach %2%°C, above the filament preset's recommended maximum of %3%°C. "
+                      "The temperature will still be capped at the printer's hardware limit."),
+                    extruder + 1, requested, recommended);
+                warning->opt_key = "thermal_pattern_max_temperature";
+                break;
+            }
+        }
+    }
     return {};
 }
 
@@ -2396,6 +2420,8 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
             if (!model_volume1.mmu_segmentation_facets.equals(model_volume2.mmu_segmentation_facets))
                 return false;
             if (!model_volume1.fuzzy_skin_facets.equals(model_volume2.fuzzy_skin_facets))
+                return false;
+            if (!model_volume1.thermal_pattern_facets.equals(model_volume2.thermal_pattern_facets))
                 return false;
             if (model_volume1.config.get() != model_volume2.config.get())
                 return false;
@@ -4903,6 +4929,9 @@ Point PrintInstance::shift_without_plate_offset() const
 
 PrintRegion *PrintObjectRegions::FuzzySkinPaintedRegion::parent_print_object_region(const LayerRangeRegions &layer_range) const
 {
+    if (this->parent_region_override != nullptr)
+        return this->parent_region_override;
+
     using FuzzySkinParentType = PrintObjectRegions::FuzzySkinPaintedRegion::ParentType;
 
     if (this->parent_type == FuzzySkinParentType::PaintedRegion) {

@@ -41,7 +41,7 @@ protected:
 	TextInput* m_tiStartPA;
 	TextInput* m_tiEndPA;
 	TextInput* m_tiPAStep;
-	CheckBox* m_cbPrintNum;
+	::CheckBox* m_cbPrintNum;
 	TextInput* m_tiBMAccels;
 	TextInput* m_tiBMSpeeds;
 
@@ -66,6 +66,24 @@ protected:
     TextInput* m_tiEnd;
     TextInput* m_tiStep;
     Plater* m_plater;
+};
+
+class Thermal_Pattern_Calibration_Dlg : public DPIDialog
+{
+public:
+    Thermal_Pattern_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plater *plater);
+    void on_dpi_changed(const wxRect &suggested_rect) override;
+
+protected:
+    void on_generate(wxCommandEvent &event);
+    void on_apply(wxCommandEvent &event);
+    bool read_params(Calib_Params &params, bool warn_about_filament_limit);
+
+    TextInput *m_ti_base;
+    TextInput *m_ti_step;
+    TextInput *m_ti_levels;
+    TextInput *m_ti_band_height;
+    Plater   *m_plater;
 };
 
 class MaxVolumetricSpeed_Test_Dlg : public DPIDialog

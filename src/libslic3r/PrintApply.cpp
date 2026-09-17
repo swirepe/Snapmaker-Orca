@@ -81,6 +81,8 @@ static inline void model_volume_list_copy_configs(ModelObject &model_object_dst,
         mv_dst.mmu_segmentation_facets.assign(mv_src.mmu_segmentation_facets);
         assert(mv_dst.fuzzy_skin_facets.id() == mv_src.fuzzy_skin_facets.id());
         mv_dst.fuzzy_skin_facets.assign(mv_src.fuzzy_skin_facets);
+        assert(mv_dst.thermal_pattern_facets.id() == mv_src.thermal_pattern_facets.id());
+        mv_dst.thermal_pattern_facets.assign(mv_src.thermal_pattern_facets);
         //FIXME what to do with the materials?
         // mv_dst.m_material_id = mv_src.m_material_id;
         ++ i_src;
@@ -870,6 +872,26 @@ bool verify_update_print_object_regions(
         }
     }
 
+    // Verify and / or update PrintRegions produced by thermal surface painting.
+    for (const PrintObjectRegions::LayerRangeRegions &layer_range : print_object_regions.layer_ranges) {
+        for (const PrintObjectRegions::FuzzySkinPaintedRegion &region : layer_range.thermal_pattern_painted_regions) {
+            const PrintRegion &parent_print_region = *region.parent_print_object_region(layer_range);
+            PrintRegionConfig  cfg                 = parent_print_region.config();
+            if (cfg.thermal_pattern_mode.value == ThermalPatternMode::PaintedSurfaces)
+                cfg.thermal_pattern_mode.value = ThermalPatternMode::AllSurfaces;
+            if (cfg != region.region->config()) {
+                if (print_region_ref_cnt(*region.region) == 0) {
+                    t_config_option_keys diff = region.region->config().diff(cfg);
+                    callback_invalidate(region.region->config(), cfg, diff);
+                    region.region->config_apply_only(cfg, diff, false);
+                } else {
+                    return false;
+                }
+            }
+            print_region_ref_inc(*region.region);
+        }
+    }
+
     // Lastly verify, whether some regions were not merged.
     {
         std::vector<const PrintRegion*> regions;
@@ -974,7 +996,8 @@ static PrintObjectRegions* generate_print_object_regions(
     size_t                                       num_extruders,
     const float                                  xy_contour_compensation,
     const std::vector<unsigned int>             &painting_extruders,
-    const bool                                   has_painted_fuzzy_skin)
+    const bool                                   has_painted_fuzzy_skin,
+    const bool                                   has_painted_thermal_pattern)
 {
     // Reuse the old object or generate a new one.
     auto out = print_object_regions_old ? std::unique_ptr<PrintObjectRegions>(print_object_regions_old) : std::make_unique<PrintObjectRegions>();
@@ -997,6 +1020,7 @@ static PrintObjectRegions* generate_print_object_regions(
             r.volume_regions.clear();
             r.painted_regions.clear();
             r.fuzzy_skin_painted_regions.clear();
+            r.thermal_pattern_painted_regions.clear();
         }
     } else {
         out->trafo_bboxes = trafo;
@@ -1126,6 +1150,49 @@ static PrintObjectRegions* generate_print_object_regions(
             std::sort(layer_range.fuzzy_skin_painted_regions.begin(), layer_range.fuzzy_skin_painted_regions.end(), [&layer_range](auto &l, auto &r) {
                 return l.parent_print_object_region_id(layer_range) < r.parent_print_object_region_id(layer_range);
             });
+        }
+    }
+
+
+    if (has_painted_thermal_pattern) {
+        using PaintedParentType = PrintObjectRegions::FuzzySkinPaintedRegion::ParentType;
+
+        for (PrintObjectRegions::LayerRangeRegions &layer_range : layer_ranges_regions) {
+            for (int parent_volume_region_id = 0; parent_volume_region_id < int(layer_range.volume_regions.size());
+                 ++parent_volume_region_id) {
+                const PrintObjectRegions::VolumeRegion &parent_volume_region = layer_range.volume_regions[parent_volume_region_id];
+                if (parent_volume_region.model_volume->is_model_part() || parent_volume_region.model_volume->is_modifier()) {
+                    PrintRegionConfig cfg       = parent_volume_region.region->config();
+                    if (cfg.thermal_pattern_mode.value == ThermalPatternMode::PaintedSurfaces)
+                        cfg.thermal_pattern_mode.value = ThermalPatternMode::AllSurfaces;
+                    layer_range.thermal_pattern_painted_regions.push_back(
+                        {PaintedParentType::VolumeRegion, parent_volume_region_id, get_create_region(std::move(cfg))});
+                }
+            }
+
+            for (int parent_painted_region_id = 0; parent_painted_region_id < int(layer_range.painted_regions.size());
+                 ++parent_painted_region_id) {
+                const PrintObjectRegions::PaintedRegion &parent_painted_region = layer_range.painted_regions[parent_painted_region_id];
+                PrintRegionConfig cfg = parent_painted_region.region->config();
+                if (cfg.thermal_pattern_mode.value == ThermalPatternMode::PaintedSurfaces)
+                    cfg.thermal_pattern_mode.value = ThermalPatternMode::AllSurfaces;
+                layer_range.thermal_pattern_painted_regions.push_back(
+                    {PaintedParentType::PaintedRegion, parent_painted_region_id, get_create_region(std::move(cfg))});
+            }
+
+            // Preserve independent masks where thermal patterning and fuzzy skin overlap.
+            for (const PrintObjectRegions::FuzzySkinPaintedRegion &fuzzy_region : layer_range.fuzzy_skin_painted_regions) {
+                PrintRegionConfig cfg = fuzzy_region.region->config();
+                if (cfg.thermal_pattern_mode.value == ThermalPatternMode::PaintedSurfaces)
+                    cfg.thermal_pattern_mode.value = ThermalPatternMode::AllSurfaces;
+                layer_range.thermal_pattern_painted_regions.push_back(
+                    {PaintedParentType::VolumeRegion, -1, get_create_region(std::move(cfg)), fuzzy_region.region});
+            }
+
+            std::sort(layer_range.thermal_pattern_painted_regions.begin(), layer_range.thermal_pattern_painted_regions.end(),
+                      [&layer_range](const auto &left, const auto &right) {
+                          return left.parent_print_object_region_id(layer_range) < right.parent_print_object_region_id(layer_range);
+                      });
         }
     }
 
@@ -1585,7 +1652,8 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
         bool solid_or_modifier_differ   = model_volume_list_changed(model_object, model_object_new, solid_or_modifier_types) ||
                                           model_mmu_segmentation_data_changed(model_object, model_object_new) ||
                                           (model_object_new.is_mm_painted() && num_extruders_changed) ||
-                                          model_fuzzy_skin_data_changed(model_object, model_object_new);
+                                          model_fuzzy_skin_data_changed(model_object, model_object_new) ||
+                                          model_thermal_pattern_data_changed(model_object, model_object_new);
         bool supports_differ            = model_volume_list_changed(model_object, model_object_new, ModelVolumeType::SUPPORT_BLOCKER) ||
                                           model_volume_list_changed(model_object, model_object_new, ModelVolumeType::SUPPORT_ENFORCER);
         bool layer_height_ranges_differ = ! layer_height_ranges_equal(model_object.layer_config_ranges, model_object_new.layer_config_ranges, model_object_new.layer_height_profile.empty());
@@ -1973,7 +2041,8 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                 num_total_filaments ,
                 print_object.is_mm_painted() ? 0.f : float(print_object.config().xy_contour_compensation.value),
                 painting_extruders,
-                print_object.is_fuzzy_skin_painted());
+                print_object.is_fuzzy_skin_painted(),
+                print_object.is_thermal_pattern_painted());
         }
         for (auto it = it_print_object; it != it_print_object_end; ++it)
             if ((*it)->m_shared_regions) {

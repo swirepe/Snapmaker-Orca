@@ -1235,6 +1235,8 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "dithering_local_z_infill") {
             invalidated |= m_print->invalidate_step(psWipeTower);
             invalidated |= m_print->invalidate_step(psGCodeExport);
+        } else if (boost::starts_with(opt_key, "thermal_pattern_")) {
+            invalidated |= m_print->invalidate_step(psGCodeExport);
         } else {
             // for legacy, if we can't handle this option let's invalidate all steps
             this->invalidate_all_steps();

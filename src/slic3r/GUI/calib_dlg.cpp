@@ -4,6 +4,7 @@
 #include "I18N.hpp"
 #include <wx/dcgraph.h>
 #include "MainFrame.hpp"
+#include "Tab.hpp"
 #include "Widgets/DialogButtons.hpp"
 #include <string>
 
@@ -104,7 +105,7 @@ PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* 
     // Print Numbers
     wxBoxSizer* cb_sizer = new wxBoxSizer(wxHORIZONTAL);
     auto cb_title = new wxStaticText(this, wxID_ANY, cb_print_no_str, wxDefaultPosition, st_size, 0);
-    m_cbPrintNum = new CheckBox(this);
+    m_cbPrintNum = new ::CheckBox(this);
     m_cbPrintNum->SetValue(false);
     m_cbPrintNum->Bind(wxEVT_TOGGLEBUTTON, [this](wxCommandEvent& e) {
         (m_params.print_numbers) = (m_params.print_numbers) ? false : true;
@@ -448,6 +449,140 @@ void Temp_Calibration_Dlg::on_dpi_changed(const wxRect& suggested_rect) {
     this->Refresh();
     Fit();
 
+}
+
+Thermal_Pattern_Calibration_Dlg::Thermal_Pattern_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plater *plater)
+    : DPIDialog(parent, id, _L("Thermal surface patterning calibration"), wxDefaultPosition,
+                parent->FromDIP(wxSize(-1, 340)), wxDEFAULT_DIALOG_STYLE),
+      m_plater(plater)
+{
+    SetBackgroundColour(*wxWHITE);
+    SetForegroundColour(wxColour("#363636"));
+    SetFont(Label::Body_14);
+
+    auto *outer = new wxBoxSizer(wxVERTICAL);
+    SetSizer(outer);
+    auto *box = new LabeledStaticBox(this, _L("Calibration range"));
+    auto *settings = new wxStaticBoxSizer(box, wxVERTICAL);
+    const wxSize input_size = FromDIP(wxSize(120, -1));
+
+    auto add_input = [this, settings, input_size](const wxString &label, const wxString &value, const wxString &unit,
+                                                  TextInput *&input) {
+        auto *row = new wxBoxSizer(wxHORIZONTAL);
+        auto *text = new wxStaticText(this, wxID_ANY, label, wxDefaultPosition, FromDIP(wxSize(190, -1)), wxALIGN_LEFT);
+        input = new TextInput(this, value, unit, "", wxDefaultPosition, input_size);
+        input->GetTextCtrl()->SetValidator(wxTextValidator(wxFILTER_NUMERIC));
+        row->Add(text, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        row->Add(input, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+        settings->Add(row, 0, wxLEFT, FromDIP(3));
+    };
+
+    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+    const auto *base_temperatures = full_config.option<ConfigOptionInts>("nozzle_temperature");
+    const auto *pattern_steps = full_config.option<ConfigOptionFloats>("thermal_pattern_temperature_step");
+    const int base_temperature = base_temperatures == nullptr || base_temperatures->values.empty() ? 210 : base_temperatures->values.front();
+    const double pattern_step = pattern_steps == nullptr || pattern_steps->values.empty() ? 10.0 : pattern_steps->values.front();
+
+    settings->AddSpacer(FromDIP(5));
+    add_input(_L("Base temperature:"), wxString::Format("%d", base_temperature), wxString::FromUTF8("℃"), m_ti_base);
+    add_input(_L("Temperature step:"), wxString::Format("%.1f", pattern_step), wxString::FromUTF8("℃"), m_ti_step);
+    add_input(_L("Maximum level:"), "6", "", m_ti_levels);
+    add_input(_L("Band height:"), "5", "mm", m_ti_band_height);
+    settings->AddSpacer(FromDIP(5));
+    outer->Add(settings, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
+
+    auto *description = new wxStaticText(
+        this, wxID_ANY,
+        _L("Generate a wall tower and stepped top-surface swatches. After printing, enter the selected range and apply it to a new filament preset."));
+    description->Wrap(FromDIP(420));
+    outer->Add(description, 0, wxALL | wxEXPAND, FromDIP(12));
+
+    auto *buttons = new DialogButtons(this, {"Apply", "OK", "Cancel"});
+    buttons->GetOK()->SetLabel(_L("Generate test"));
+    buttons->GetAPPLY()->SetLabel(_L("Apply and save filament"));
+    buttons->GetOK()->Bind(wxEVT_BUTTON, &Thermal_Pattern_Calibration_Dlg::on_generate, this);
+    buttons->GetAPPLY()->Bind(wxEVT_BUTTON, &Thermal_Pattern_Calibration_Dlg::on_apply, this);
+    buttons->GetCANCEL()->Bind(wxEVT_BUTTON, [this](wxCommandEvent &) { EndModal(wxID_CANCEL); });
+    outer->Add(buttons, 0, wxEXPAND);
+
+    wxGetApp().UpdateDlgDarkUI(this);
+    Layout();
+    Fit();
+}
+
+bool Thermal_Pattern_Calibration_Dlg::read_params(Calib_Params &params, bool warn_about_filament_limit)
+{
+    long levels = 0;
+    bool valid = m_ti_base->GetTextCtrl()->GetValue().ToDouble(&params.start) &&
+                 m_ti_step->GetTextCtrl()->GetValue().ToDouble(&params.step) &&
+                 m_ti_band_height->GetTextCtrl()->GetValue().ToDouble(&params.thermal_band_height) &&
+                 m_ti_levels->GetTextCtrl()->GetValue().ToLong(&levels);
+    if (!valid || params.start < 0. || params.step <= 0. || params.thermal_band_height < 0.4 || levels < 1 || levels > 20) {
+        MessageDialog(this, _L("Enter a positive temperature step, 1-20 levels, and a band height of at least 0.4 mm."),
+                      wxEmptyString, wxICON_WARNING | wxOK).ShowModal();
+        return false;
+    }
+
+    params.thermal_max_level = static_cast<int>(levels);
+    params.end = params.start + params.step * levels;
+    params.mode = CalibMode::Calib_Thermal_Pattern;
+
+    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+    const auto *machine_limit = full_config.option<ConfigOptionInts>("machine_max_nozzle_temperature");
+    const int hardware_max = machine_limit == nullptr || machine_limit->values.empty() ? 300 : machine_limit->values.front();
+    if (params.end > hardware_max) {
+        MessageDialog(this, wxString::Format(_L("The requested maximum temperature %.0f°C exceeds the machine limit of %d°C."),
+                                             params.end, hardware_max),
+                      wxEmptyString, wxICON_ERROR | wxOK).ShowModal();
+        return false;
+    }
+
+    if (warn_about_filament_limit) {
+        const auto *filament_limit = full_config.option<ConfigOptionInts>("nozzle_temperature_range_high");
+        const int recommended_max = filament_limit == nullptr || filament_limit->values.empty() ? hardware_max : filament_limit->values.front();
+        if (params.end > recommended_max) {
+            MessageDialog warning(
+                this,
+                wxString::Format(_L("The requested maximum temperature %.0f°C exceeds this filament preset's recommended maximum of %d°C. Continue?"),
+                                 params.end, recommended_max),
+                _L("Thermal pattern temperature warning"), wxICON_WARNING | wxYES_NO | wxNO_DEFAULT);
+            if (warning.ShowModal() != wxID_YES)
+                return false;
+        }
+    }
+    return true;
+}
+
+void Thermal_Pattern_Calibration_Dlg::on_generate(wxCommandEvent &)
+{
+    Calib_Params params;
+    if (!read_params(params, true))
+        return;
+    m_plater->calib_thermal_pattern(params);
+    EndModal(wxID_OK);
+}
+
+void Thermal_Pattern_Calibration_Dlg::on_apply(wxCommandEvent &)
+{
+    Calib_Params params;
+    if (!read_params(params, true))
+        return;
+
+    DynamicPrintConfig &config = wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    config.set_key_value("thermal_pattern_enabled", new ConfigOptionBools(1, true));
+    config.set_key_value("thermal_pattern_temperature_step", new ConfigOptionFloats(1, params.step));
+    config.set_key_value("thermal_pattern_max_temperature", new ConfigOptionInts(1, static_cast<int>(std::lround(params.end))));
+    Tab *filament_tab = wxGetApp().get_tab(Preset::TYPE_FILAMENT);
+    filament_tab->update_dirty();
+    filament_tab->reload_config();
+    EndModal(wxID_OK);
+    wxGetApp().CallAfter([filament_tab]() { filament_tab->save_preset(); });
+}
+
+void Thermal_Pattern_Calibration_Dlg::on_dpi_changed(const wxRect &)
+{
+    Refresh();
+    Fit();
 }
 
 

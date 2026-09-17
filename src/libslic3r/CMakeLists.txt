@@ -448,6 +448,8 @@ set(lisbslic3r_sources
     TextConfiguration.hpp
     Thread.cpp
     Thread.hpp
+    ThermalSurfacePatterning.cpp
+    ThermalSurfacePatterning.hpp
     Time.cpp
     Time.hpp
     Timer.cpp

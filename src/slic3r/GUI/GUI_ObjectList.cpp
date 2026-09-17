@@ -2572,6 +2572,13 @@ void ObjectList::del_info_item(const int obj_idx, InfoItemType type)
             mv->fuzzy_skin_facets.reset();
         break;
 
+    case InfoItemType::ThermalPattern:
+        cnv->get_gizmos_manager().reset_all_states();
+        Plater::TakeSnapshot(plater, _u8L("Remove paint-on thermal surface patterning"));
+        for (ModelVolume *mv : (*m_objects)[obj_idx]->volumes)
+            mv->thermal_pattern_facets.reset();
+        break;
+
     // BBS: remove Sinking
     case InfoItemType::Undef : assert(false); break;
     }
@@ -3503,10 +3510,12 @@ void ObjectList::part_selection_changed()
                     //case InfoItemType::CustomSeam:
                     case InfoItemType::MmSegmentation:
                     case InfoItemType::FuzzySkin:
+                    case InfoItemType::ThermalPattern:
                     {
                         GLGizmosManager::EType gizmo_type = info_type == InfoItemType::CustomSupports ? GLGizmosManager::EType::FdmSupports :
                                                             /*info_type == InfoItemType::CustomSeam ? GLGizmosManager::EType::Seam :*/
                                                             info_type == InfoItemType::FuzzySkin        ? GLGizmosManager::EType::FuzzySkin :
+                                                            info_type == InfoItemType::ThermalPattern   ? GLGizmosManager::EType::ThermalPattern :
                                                             GLGizmosManager::EType::MmSegmentation;
                         GLGizmosManager& gizmos_mgr = wxGetApp().plater()->get_view3D_canvas3D()->get_gizmos_manager();
                         if (gizmos_mgr.get_current_type() != gizmo_type)
@@ -3731,6 +3740,22 @@ void ObjectList::update_info_items(size_t obj_idx, wxDataViewItemArray* selectio
                 }
             } else
                 Select(item_obj);
+        }
+    }
+
+    for (const auto &[info_type, should_show] : {
+             std::pair{InfoItemType::FuzzySkin, model_object->is_fuzzy_skin_painted()},
+             std::pair{InfoItemType::ThermalPattern, model_object->is_thermal_pattern_painted()}}) {
+        wxDataViewItem item = m_objects_model->GetInfoItemByType(item_obj, info_type);
+        if (!item.IsOk() && should_show) {
+            m_objects_model->AddInfoChild(item_obj, info_type);
+            Expand(item_obj);
+            if (added_object)
+                wxGetApp().notification_manager()->push_updated_item_info_notification(info_type);
+        } else if (item.IsOk() && !should_show) {
+            if (!selections)
+                Unselect(item);
+            m_objects_model->Delete(item);
         }
     }
 

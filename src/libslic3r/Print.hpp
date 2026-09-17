@@ -295,6 +295,8 @@ public:
         int          parent { -1 };
         // Pointer to PrintObjectRegions::all_regions.
         PrintRegion *region { nullptr };
+        // Optional direct parent used when one binary paint mask is layered over another.
+        PrintRegion *parent_region_override { nullptr };
 
         PrintRegion *parent_print_object_region(const LayerRangeRegions &layer_range) const;
         int          parent_print_object_region_id(const LayerRangeRegions &layer_range) const;
@@ -315,6 +317,7 @@ public:
         std::vector<VolumeRegion>           volume_regions;
         std::vector<PaintedRegion>          painted_regions;
         std::vector<FuzzySkinPaintedRegion> fuzzy_skin_painted_regions;
+        std::vector<FuzzySkinPaintedRegion> thermal_pattern_painted_regions;
 
         bool has_volume(const ObjectID id) const {
             auto it = lower_bound_by_predicate(this->volumes.begin(), this->volumes.end(), [id](const VolumeExtents &l) { return l.volume_id < id; });
@@ -482,6 +485,7 @@ public:
     bool                        is_mm_painted()         const { return this->model_object()->is_mm_painted(); }
     // Checks if the model object is painted using the fuzzy skin painting gizmo.
     bool                        is_fuzzy_skin_painted() const { return this->model_object()->is_fuzzy_skin_painted(); }
+    bool                        is_thermal_pattern_painted() const { return this->model_object()->is_thermal_pattern_painted(); }
 
     // returns 0-based indices of extruders used to print the object (without brim, support and other helper extrusions)
     std::vector<unsigned int>   object_extruders() const;

@@ -3045,6 +3045,14 @@ void MainFrame::init_menubar_as_editor()
         }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
 
+    append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("Thermal surface patterning"),
+        _L("Calibrate thermal surface patterning"),
+        [this](wxCommandEvent &) {
+            if (!m_thermal_pattern_calib_dlg)
+                m_thermal_pattern_calib_dlg = new Thermal_Pattern_Calibration_Dlg((wxWindow *) this, wxID_ANY, m_plater);
+            m_thermal_pattern_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
+
     // Flow rate (with submenu)
     auto flowrate_menu = new wxMenu();
     append_menu_item(
@@ -3166,6 +3174,13 @@ void MainFrame::init_menubar_as_editor()
             m_temp_calib_dlg->ShowModal();
         }, "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
+
+    append_menu_item(calib_menu, wxID_ANY, _L("Thermal surface patterning"), _L("Calibrate thermal surface patterning"),
+        [this](wxCommandEvent &) {
+            if (!m_thermal_pattern_calib_dlg)
+                m_thermal_pattern_calib_dlg = new Thermal_Pattern_Calibration_Dlg((wxWindow *) this, wxID_ANY, m_plater);
+            m_thermal_pattern_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
 
     // Flowrate (with submenu)
     auto flowrate_menu = new wxMenu();

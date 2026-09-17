@@ -13989,6 +13989,7 @@ bool Plater::priv::replace_volume_with_stl(int object_idx, int volume_idx, const
     new_volume->seam_facets.assign(old_volume->seam_facets);
     new_volume->mmu_segmentation_facets.assign(old_volume->mmu_segmentation_facets);
     new_volume->fuzzy_skin_facets.assign(old_volume->fuzzy_skin_facets);
+    new_volume->thermal_pattern_facets.assign(old_volume->thermal_pattern_facets);
     std::swap(old_model_object->volumes[volume_idx], old_model_object->volumes.back());
     old_model_object->delete_volume(old_model_object->volumes.size() - 1);
     if (!sinking)
@@ -18661,6 +18662,70 @@ void Plater::calib_temp(const Calib_Params& params) {
         }
     }
     
+    p->background_process.fff_print()->set_calib_params(params);
+}
+
+void Plater::calib_thermal_pattern(const Calib_Params &params)
+{
+    new_project(false, false, _L("Thermal surface patterning calibration"));
+    wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+    if (params.mode != CalibMode::Calib_Thermal_Pattern)
+        return;
+
+    // A narrow tower exposes long walls while the stepped cubes expose a top surface at every level.
+    sidebar().obj_list()->load_generic_subobject("Cube", ModelVolumeType::INVALID);
+    if (model().objects.empty())
+        return;
+
+    ModelObject *tower = model().objects.front();
+    std::vector<ModelObject *> swatches;
+    swatches.reserve(params.thermal_max_level + 1);
+    for (int level = 0; level <= params.thermal_max_level; ++level)
+        swatches.push_back(model().add_object(*tower));
+
+    const Vec3d source_size = tower->raw_bounding_box().size();
+    const double full_height = (params.thermal_max_level + 1) * params.thermal_band_height;
+    tower->name = _u8L("Thermal wall tower");
+    tower->scale(24.0 / source_size.x(), 8.0 / source_size.y(), full_height / source_size.z());
+    tower->translate_instances(Vec3d(-42.0, 0.0, 0.0));
+
+    const double swatch_pitch = 13.0;
+    const double swatch_start = -0.5 * params.thermal_max_level * swatch_pitch;
+    for (int level = 0; level <= params.thermal_max_level; ++level) {
+        ModelObject *swatch = swatches[level];
+        const double swatch_height = std::max(0.8, (level + 0.5) * params.thermal_band_height);
+        swatch->name = Slic3r::format("Thermal top swatch L%1%", level);
+        swatch->scale(10.0 / source_size.x(), 10.0 / source_size.y(), swatch_height / source_size.z());
+        swatch->translate_instances(Vec3d(swatch_start + level * swatch_pitch, 18.0, 0.0));
+    }
+
+    auto *print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    auto *filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
+    auto *printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
+    const int base_temperature = static_cast<int>(std::lround(params.start));
+    filament_config->set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, base_temperature));
+    filament_config->set_key_value("nozzle_temperature", new ConfigOptionInts(1, base_temperature));
+    print_config->set_key_value("layer_height", new ConfigOptionFloat(0.2));
+    print_config->set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::Disabled));
+    printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool(false));
+
+    for (ModelObject *object : model().objects) {
+        object->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
+        object->config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
+        object->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
+        object->config.set_key_value("seam_slope_type", new ConfigOptionEnum<SeamScarfType>(SeamScarfType::None));
+    }
+
+    std::vector<size_t> object_indices(model().objects.size());
+    std::iota(object_indices.begin(), object_indices.end(), size_t(0));
+    changed_objects(object_indices);
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+    wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
+    wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
+
     p->background_process.fff_print()->set_calib_params(params);
 }
 
@@ -23475,11 +23540,13 @@ void Plater::clear_before_change_mesh(int obj_idx)
     // may be different and they would make no sense.
     bool paint_removed = false;
     for (ModelVolume* mv : mo->volumes) {
-        paint_removed |= ! mv->supported_facets.empty() || ! mv->seam_facets.empty() || ! mv->mmu_segmentation_facets.empty() || !mv->fuzzy_skin_facets.empty();
+        paint_removed |= !mv->supported_facets.empty() || !mv->seam_facets.empty() || !mv->mmu_segmentation_facets.empty() ||
+                         !mv->fuzzy_skin_facets.empty() || !mv->thermal_pattern_facets.empty();
         mv->supported_facets.reset();
         mv->seam_facets.reset();
         mv->mmu_segmentation_facets.reset();
         mv->fuzzy_skin_facets.reset();
+        mv->thermal_pattern_facets.reset();
     }
     if (paint_removed) {
         // snapshot_time is captured by copy so the lambda knows where to undo/redo to.

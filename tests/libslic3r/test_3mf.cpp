@@ -1,7 +1,10 @@
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Preset.hpp"
 #include "libslic3r/Format/3mf.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Format/STL.hpp"
 
 #include <boost/filesystem/operations.hpp>
@@ -80,6 +83,105 @@ SCENARIO("Export+Import geometry to/from 3mf file cycle", "[3mf]") {
     }
 }
 
+TEST_CASE("Thermal surface paint survives a 3MF round trip", "[3mf][thermal_pattern]")
+{
+    Model source;
+    const std::string source_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
+    load_stl(source_file.c_str(), &source);
+    source.add_default_instances();
+    ModelVolume *source_volume = source.objects.front()->volumes.front();
+    source_volume->thermal_pattern_facets.reserve(source_volume->mesh().facets_count());
+    source_volume->thermal_pattern_facets.set_triangle_from_string(0, "1");
+    source_volume->thermal_pattern_facets.shrink_to_fit();
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("thermal-pattern-%%%%-%%%%.3mf");
+    REQUIRE(store_3mf(output.string().c_str(), &source, nullptr, false));
+
+    Model loaded;
+    DynamicPrintConfig config;
+    ConfigSubstitutionContext context {ForwardCompatibilitySubstitutionRule::Disable};
+    REQUIRE(load_3mf(output.string().c_str(), config, context, &loaded, false));
+    boost::filesystem::remove(output);
+
+    REQUIRE(loaded.objects.size() == 1);
+    REQUIRE(loaded.objects.front()->volumes.size() == 1);
+    const FacetsAnnotation &loaded_paint = loaded.objects.front()->volumes.front()->thermal_pattern_facets;
+    REQUIRE_FALSE(loaded_paint.empty());
+    REQUIRE(loaded_paint.get_triangle_as_string(0) == "1");
+}
+
+TEST_CASE("Thermal surface paint survives a project 3MF round trip", "[3mf][thermal_pattern][bbs_3mf]")
+{
+    Model source;
+    const std::string source_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
+    load_stl(source_file.c_str(), &source);
+    source.add_default_instances();
+    ModelVolume *source_volume = source.objects.front()->volumes.front();
+    source_volume->thermal_pattern_facets.reserve(source_volume->mesh().facets_count());
+    source_volume->thermal_pattern_facets.set_triangle_from_string(0, "1");
+    source_volume->thermal_pattern_facets.shrink_to_fit();
+    source_volume->fuzzy_skin_facets.reserve(source_volume->mesh().facets_count());
+    source_volume->fuzzy_skin_facets.set_triangle_from_string(0, "1");
+    source_volume->fuzzy_skin_facets.shrink_to_fit();
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("thermal-pattern-project-%%%%-%%%%.3mf");
+    const boost::filesystem::path backup = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("thermal-pattern-project-backup-%%%%-%%%%");
+    source.set_backup_path(backup.string());
+    const std::string output_path = output.string();
+    DynamicPrintConfig source_config;
+    source_config.set_key_value("thermal_pattern_mode",
+                                new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::PaintedSurfaces));
+    source_config.set_key_value("thermal_pattern_seed", new ConfigOptionInt(4242));
+    source_config.set_key_value("thermal_pattern_enabled", new ConfigOptionBools {true});
+    source_config.set_key_value("thermal_pattern_temperature_step", new ConfigOptionFloats {11.5});
+    source_config.set_key_value("thermal_pattern_max_temperature", new ConfigOptionInts {287});
+    StoreParams store_params;
+    store_params.path = output_path.c_str();
+    store_params.model = &source;
+    store_params.config = &source_config;
+    const bool stored = store_bbs_3mf(store_params);
+    source.remove_backup_path_if_exist();
+    REQUIRE(stored);
+
+    Model loaded;
+    const boost::filesystem::path load_backup = boost::filesystem::temp_directory_path() /
+                                                boost::filesystem::unique_path("thermal-pattern-project-load-%%%%-%%%%");
+    loaded.set_backup_path(load_backup.string());
+    DynamicPrintConfig loaded_config;
+    ConfigSubstitutionContext context {ForwardCompatibilitySubstitutionRule::Disable};
+    PlateDataPtrs plate_data;
+    std::vector<Preset *> project_presets;
+    bool is_bbl_3mf = false;
+    Semver file_version;
+    const LoadStrategy load_strategy = LoadStrategy::LoadModel | LoadStrategy::LoadConfig |
+                                       LoadStrategy::AddDefaultInstances;
+    const bool loaded_ok = load_bbs_3mf(output_path.c_str(), &loaded_config, &context, &loaded, &plate_data,
+                                        &project_presets, &is_bbl_3mf, &file_version, nullptr, load_strategy);
+    loaded.remove_backup_path_if_exist();
+    REQUIRE(loaded_ok);
+    release_PlateData_list(plate_data);
+    for (Preset *preset : project_presets)
+        delete preset;
+    boost::filesystem::remove(output);
+
+    REQUIRE(loaded.objects.size() == 1);
+    REQUIRE(loaded.objects.front()->volumes.size() == 1);
+    const FacetsAnnotation &loaded_paint = loaded.objects.front()->volumes.front()->thermal_pattern_facets;
+    REQUIRE_FALSE(loaded_paint.empty());
+    REQUIRE(loaded_paint.get_triangle_as_string(0) == "1");
+    const FacetsAnnotation &loaded_fuzzy_paint = loaded.objects.front()->volumes.front()->fuzzy_skin_facets;
+    REQUIRE_FALSE(loaded_fuzzy_paint.empty());
+    REQUIRE(loaded_fuzzy_paint.get_triangle_as_string(0) == "1");
+    REQUIRE(loaded_config.opt_enum<ThermalPatternMode>("thermal_pattern_mode") == ThermalPatternMode::PaintedSurfaces);
+    REQUIRE(loaded_config.opt_int("thermal_pattern_seed") == 4242);
+    REQUIRE(loaded_config.opt_bool("thermal_pattern_enabled", 0));
+    REQUIRE(loaded_config.opt_float("thermal_pattern_temperature_step", 0) == Catch::Approx(11.5));
+    REQUIRE(loaded_config.opt_int("thermal_pattern_max_temperature", 0) == 287);
+}
+
 SCENARIO("2D convex hull of sinking object", "[3mf]") {
     GIVEN("model") {
         // load a model
@@ -128,4 +230,3 @@ SCENARIO("2D convex hull of sinking object", "[3mf]") {
         }
     }
 }
-

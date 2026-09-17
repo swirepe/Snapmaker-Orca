@@ -24,12 +24,12 @@ void GLGizmoFuzzySkin::on_shutdown()
 
 std::string GLGizmoFuzzySkin::on_get_name() const
 {
-    return _u8L("Paint-on fuzzy skin");
+    return m_thermal_pattern ? _u8L("Paint-on thermal surface patterning") : _u8L("Paint-on fuzzy skin");
 }
 
 bool GLGizmoFuzzySkin::on_init()
 {
-    m_shortcut_key = WXK_CONTROL_H;
+    m_shortcut_key = m_thermal_pattern ? 0 : WXK_CONTROL_H;
 
     // FIXME: maybe should be using GUI::shortkey_ctrl_prefix() or equivalent?
     const wxString ctrl  = _L("Ctrl+");
@@ -44,9 +44,9 @@ bool GLGizmoFuzzySkin::on_init()
     m_desc["cursor_size"]               = _L("Brush size");
     m_desc["cursor_type"]               = _L("Brush shape") ;
     m_desc["add_fuzzy_skin_caption"]    = _L("Left mouse button");
-    m_desc["add_fuzzy_skin"]            = _L("Add fuzzy skin");
+    m_desc["add_fuzzy_skin"]            = m_thermal_pattern ? _L("Add thermal pattern") : _L("Add fuzzy skin");
     m_desc["remove_fuzzy_skin_caption"] = shift + _L("Left mouse button");
-    m_desc["remove_fuzzy_skin"]         = _L("Remove fuzzy skin");
+    m_desc["remove_fuzzy_skin"]         = m_thermal_pattern ? _L("Remove thermal pattern") : _L("Remove fuzzy skin");
     m_desc["remove_all"]                = _L("Erase all painting");
     m_desc["circle"]                    = _L("Circle");
     m_desc["sphere"]                    = _L("Sphere");
@@ -60,8 +60,10 @@ bool GLGizmoFuzzySkin::on_init()
     return true;
 }
 
-GLGizmoFuzzySkin::GLGizmoFuzzySkin(GLCanvas3D& parent, const std::string& icon_filename, unsigned int sprite_id)
-    : GLGizmoPainterBase(parent, icon_filename, sprite_id), m_current_tool(ImGui::CircleButtonIcon)
+GLGizmoFuzzySkin::GLGizmoFuzzySkin(
+    GLCanvas3D &parent, const std::string &icon_filename, unsigned int sprite_id, bool thermal_pattern)
+    : GLGizmoPainterBase(parent, icon_filename, sprite_id), m_current_tool(ImGui::CircleButtonIcon),
+      m_thermal_pattern(thermal_pattern)
 {
 }
 
@@ -345,7 +347,8 @@ void GLGizmoFuzzySkin::update_model_object()
             continue;
 
         ++idx;
-        updated |= mv->fuzzy_skin_facets.set(*m_triangle_selectors[idx]);
+        FacetsAnnotation &facets = m_thermal_pattern ? mv->thermal_pattern_facets : mv->fuzzy_skin_facets;
+        updated |= facets.set(*m_triangle_selectors[idx]);
     }
 
     if (updated) {
@@ -378,19 +381,37 @@ void GLGizmoFuzzySkin::update_from_model_object(bool first_update)
         const TriangleMesh* mesh = &mv->mesh();
         m_triangle_selectors.emplace_back(std::make_unique<TriangleSelectorPatch>(*mesh, ebt_colors));
         // Reset of TriangleSelector is done inside TriangleSelectorGUI's constructor, so we don't need it to perform it again in deserialize().
-        m_triangle_selectors.back()->deserialize(mv->fuzzy_skin_facets.get_data(), false);
+        const FacetsAnnotation &facets = m_thermal_pattern ? mv->thermal_pattern_facets : mv->fuzzy_skin_facets;
+        m_triangle_selectors.back()->deserialize(facets.get_data(), false);
         m_triangle_selectors.back()->request_update_render_data();
     }
 }
 
 PainterGizmoType GLGizmoFuzzySkin::get_painter_type() const
 {
-    return PainterGizmoType::FUZZY_SKIN;
+    return m_thermal_pattern ? PainterGizmoType::THERMAL_PATTERN : PainterGizmoType::FUZZY_SKIN;
 }
 
 wxString GLGizmoFuzzySkin::handle_snapshot_action_name(bool shift_down, GLGizmoPainterBase::Button button_down) const
 {
+    if (m_thermal_pattern)
+        return shift_down ? _L("Remove thermal pattern") : _L("Add thermal pattern");
     return shift_down ? _L("Remove fuzzy skin") : _L("Add fuzzy skin");
+}
+
+std::string GLGizmoFuzzySkin::get_gizmo_entering_text() const
+{
+    return m_thermal_pattern ? _u8L("Entering Paint-on thermal surface patterning") : _u8L("Entering Paint-on fuzzy skin");
+}
+
+std::string GLGizmoFuzzySkin::get_gizmo_leaving_text() const
+{
+    return m_thermal_pattern ? _u8L("Leaving Paint-on thermal surface patterning") : _u8L("Leaving Paint-on fuzzy skin");
+}
+
+std::string GLGizmoFuzzySkin::get_action_snapshot_name() const
+{
+    return m_thermal_pattern ? _u8L("Edit paint-on thermal surface patterning") : _u8L("Paint-on fuzzy skin editing");
 }
 
 } // namespace Slic3r::GUI
