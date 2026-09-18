@@ -729,7 +729,7 @@ std::string WipeTowerIntegration::append_tcr2(GCode& gcodegen, const WipeTower::
 
     std::string tcr_rotated_gcode = post_process_wipe_tower_moves(tcr, wipe_tower_offset, wipe_tower_rotation);
 
-    gcode += gcodegen.writer().unlift(); // Make sure there is no z-hop (in most cases, there isn't).
+    gcode += gcodegen.unlift(); // Make sure there is no z-hop (in most cases, there isn't).
 
     double current_z = gcodegen.writer().get_position().z();
 
@@ -1119,7 +1119,7 @@ std::string WipeTowerIntegration::tool_change(GCode& gcodegen, int extruder_id, 
         gcodegen.m_next_wipe_x = start_pos.x();
         gcodegen.m_next_wipe_y = start_pos.y();
 
-        gcode += gcodegen.writer().unlift();
+        gcode += gcodegen.unlift();
 
         if (gcodegen.writer().extruder() != nullptr) {
             auto type = ZHopType(get_value_at(gcodegen.m_config, gcodegen.m_config.z_hop_types, ConfigFlowDomain::Filament, gcodegen.m_writer.extruder()->id()));
@@ -1753,7 +1753,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
 
     // BBS
     m_curr_print = print;
-    m_non_traversable_travel.initialize(*print);
+    this->initialize_non_traversable_travel(*print);
 
     GCodeWriter::full_gcode_comment = print->config().gcode_comments;
     CNumericLocalesSetter locales_setter;
@@ -8635,6 +8635,20 @@ std::string GCode::retract(bool toolchange, bool is_last_retraction, LiftType li
     }
 
     return gcode;
+}
+
+std::string GCode::unlift()
+{
+    const double lift = m_writer.get_zhop();
+    if (lift > EPSILON && m_last_pos_defined) {
+        const unsigned int active_extruder = m_writer.extruder() == nullptr ? 0 : m_writer.extruder()->id();
+        if (m_non_traversable_travel.has_obstacles_for(active_extruder)) {
+            const Point global_position = m_last_pos + scaled<coord_t>(m_origin);
+            const double current_z      = m_writer.get_position().z();
+            m_non_traversable_travel.validate_vertical(global_position, current_z, current_z - lift, active_extruder);
+        }
+    }
+    return m_writer.unlift();
 }
 
 std::string GCode::set_extruder(unsigned int extruder_id, double print_z, bool by_object)

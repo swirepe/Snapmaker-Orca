@@ -3,6 +3,7 @@
 #include "libslic3r/ClipperUtils.hpp"
 #include "libslic3r/Exception.hpp"
 #include "libslic3r/Format/3mf.hpp"
+#include "libslic3r/GCode.hpp"
 #include "libslic3r/GCode/NonTraversableTravel.hpp"
 #include "libslic3r/GCodeWriter.hpp"
 #include "libslic3r/Model.hpp"
@@ -194,4 +195,50 @@ TEST_CASE("Non-traversable travel uses transformed instances, height, and active
                         SlicingError);
         CHECK_NOTHROW(planner.validate_vertical(center_point, local_center.z() - 10., local_center.z() + 10., 1));
     }
+}
+
+TEST_CASE("Non-traversable travel validates the descent after a lifted move", "[NonTraversableTravel][GCode]")
+{
+    Model        model;
+    ModelObject *object = model.add_object();
+    object->add_volume(make_cube(20., 20., 5.));
+    ModelVolume *keepout = object->add_volume(make_cube(2., 2., 1.), ModelVolumeType::NON_TRAVERSABLE_SPACE);
+    keepout->set_offset(Vec3d(3., -2., 0.));
+    object->add_instance();
+    object->ensure_on_bed();
+
+    Print print;
+    print.set_status_silent();
+    DynamicPrintConfig print_config = DynamicPrintConfig::full_print_config();
+    print.apply(model, print_config);
+    REQUIRE(print.objects().size() == 1);
+
+    const PrintObject *print_object = print.objects().front();
+    REQUIRE(print_object->instances().size() == 1);
+    Vec3d center = print_object->trafo_centered() * keepout->get_matrix() * keepout->mesh().bounding_box().center();
+    center.head<2>() += unscaled(print_object->instances().front().shift).cast<double>();
+    const Point start  = Point::new_scale(center.x() - 4., center.y());
+    const Point end    = Point::new_scale(center.x(), center.y());
+    const double nominal_z = center.z() + 0.25;
+
+    GCode gcode;
+    gcode.apply_print_config(static_cast<const PrintConfig &>(FullPrintConfig::defaults()));
+    gcode.writer().config.z_hop.values                = {2.};
+    gcode.writer().config.retract_lift_above.values   = {0.};
+    gcode.writer().config.retract_lift_below.values   = {0.};
+    gcode.writer().set_extruders({0});
+    gcode.writer().set_extruder(0);
+    gcode.initialize_non_traversable_travel(print);
+
+    // Establish a known XY start above the obstacle, then schedule a normal
+    // lift from the obstacle's mid-height before travelling to its center.
+    gcode.writer().set_position(Vec3d(0., 0., nominal_z + 3.));
+    REQUIRE_NOTHROW(gcode.travel_to(start, erNone, "establish test start", nominal_z + 3.));
+    REQUIRE_NOTHROW(gcode.unretract());
+    gcode.writer().set_position(Vec3d(unscale<double>(start.x()), unscale<double>(start.y()), nominal_z));
+    gcode.writer().set_current_position_clear(true);
+    gcode.writer().lift(LiftType::NormalLift);
+
+    REQUIRE_NOTHROW(gcode.travel_to(end, erNone, "lifted travel", nominal_z));
+    CHECK_THROWS_AS(gcode.unretract(), SlicingError);
 }
