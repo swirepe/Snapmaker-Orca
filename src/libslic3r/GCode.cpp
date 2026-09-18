@@ -24,6 +24,7 @@
 #include "libslic3r/format.hpp"
 #include "Time.hpp"
 #include "GCode/ExtrusionProcessor.hpp"
+#include "ThermalSurfacePatterning.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -3009,6 +3010,7 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
                 file.write(m_wipe_tower->finalize(*this));
         }
     }
+    file.write(this->thermal_pattern_restore_all());
     // BBS: the last retraction
     //  Write end commands to file.
     file.write(this->retract(false, true));
@@ -4915,6 +4917,15 @@ LayerResult GCode::process_layer(const Print& print,
     case CalibMode::Calib_Temp_Tower: {
         auto offset = static_cast<unsigned int>(print_z / 10.001) * 5;
         gcode += writer().set_temperature(print.calib_params().start - offset);
+        break;
+    }
+    case CalibMode::Calib_Thermal_Pattern: {
+        const double band_height = std::max(0.1, print.calib_params().thermal_band_height);
+        const int level = m_layer_index <= 0 ? 0 : std::min(
+            print.calib_params().thermal_max_level, static_cast<int>(std::floor(std::max(0., print_z - 0.01) / band_height)));
+        const int temperature = static_cast<int>(std::lround(print.calib_params().start + level * print.calib_params().step));
+        gcode += writer().set_temperature(temperature);
+        gcode += Slic3r::format("; THERMAL_PATTERN_CALIBRATION level=%1% target=%2%C\n", level, temperature);
         break;
     }
     case CalibMode::Calib_VFA_Tower: {
@@ -7409,6 +7420,192 @@ bool GCode::_needSAFC(const ExtrusionPath& path)
     });
 }
 
+std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double &speed)
+{
+    if (m_writer.extruder() == nullptr || m_layer == nullptr)
+        return {};
+
+    const unsigned int tool = m_writer.extruder()->id();
+    if (m_thermal_pattern_tool_states.size() <= tool)
+        m_thermal_pattern_tool_states.resize(tool + 1);
+    std::string inactive_tool_restore;
+    for (size_t other_tool = 0; other_tool < m_thermal_pattern_tool_states.size(); ++other_tool)
+        if (other_tool != tool)
+            inactive_tool_restore += this->thermal_pattern_restore_tool(other_tool, "inactive tool");
+    ThermalToolState &state = m_thermal_pattern_tool_states[tool];
+
+    const bool filament_enabled = get_value_at(m_config, m_config.thermal_pattern_enabled,
+                                                ConfigFlowDomain::Filament, tool);
+    const ThermalPatternMode mode = m_config.thermal_pattern_mode.value;
+    const bool region_enabled = mode == ThermalPatternMode::AllSurfaces;
+    const bool risky_role = path.role() == erOverhangPerimeter || is_bridge(path.role()) ||
+                            path.role() == erSupportMaterialInterface;
+    const bool protected_role = m_config.thermal_pattern_protect_risky_features.value && risky_role;
+    const bool outer = path.role() == erExternalPerimeter && m_config.thermal_pattern_outer_walls.value;
+    const bool top = path.role() == erTopSolidInfill && m_config.thermal_pattern_top_surfaces.value;
+    const bool expert_risky = risky_role && !m_config.thermal_pattern_protect_risky_features.value;
+    const bool eligible = filament_enabled && region_enabled && !this->on_first_layer() &&
+                          !protected_role && !path.is_force_no_extrusion() && (outer || top || expert_risky);
+    const double nominal_duration = speed > EPSILON ? unscale<double>(path.length()) / speed : 0.0;
+
+    const double base = get_value_at(m_config, m_config.nozzle_temperature,
+                                     ConfigFlowDomain::Filament, tool);
+    if (!eligible && !state.initialized)
+        return inactive_tool_restore;
+
+    int level = 0;
+    std::uint64_t object_id = 0;
+    ThermalPatternSettings settings;
+    settings.seed = m_config.thermal_pattern_seed.value;
+    settings.max_level = m_config.thermal_pattern_max_level.value;
+    settings.top_max_level = m_config.thermal_pattern_top_max_level.value;
+    settings.band_median = m_config.thermal_pattern_band_median.value;
+    settings.band_sigma = m_config.thermal_pattern_band_sigma.value;
+    settings.band_min = m_config.thermal_pattern_band_min.value;
+    settings.band_max = m_config.thermal_pattern_band_max.value;
+    settings.dark_band_narrowing = m_config.thermal_pattern_dark_band_narrowing.value;
+    settings.stay_weight = m_config.thermal_pattern_stay_weight.value;
+    settings.adjacent_weight = m_config.thermal_pattern_adjacent_weight.value;
+    settings.two_away_weight = m_config.thermal_pattern_two_away_weight.value;
+    settings.far_weight = m_config.thermal_pattern_far_weight.value;
+    settings.darkness_bias = m_config.thermal_pattern_darkness_bias.value;
+    settings.trend_persistence = m_config.thermal_pattern_trend_persistence.value;
+    settings.trend_strength = m_config.thermal_pattern_trend_strength.value;
+    settings.accent_chance = m_config.thermal_pattern_accent_chance.value;
+    settings.accent_boost = m_config.thermal_pattern_accent_boost.value;
+    settings.accent_min = m_config.thermal_pattern_accent_min.value;
+    settings.accent_max = m_config.thermal_pattern_accent_max.value;
+    settings.heat_tau = m_config.thermal_pattern_heat_tau.value;
+    settings.cool_tau = m_config.thermal_pattern_cool_tau.value;
+    settings.thermal_tolerance = m_config.thermal_pattern_tolerance.value;
+    settings.speed_max_factor = m_config.thermal_pattern_speed_max_factor.value;
+    settings.speed_min_mm_s = m_config.thermal_pattern_speed_min.value;
+
+    if (eligible) {
+        const ModelObject *model_object = m_layer->object()->model_object();
+        object_id = model_object->id().id;
+        if (const Model *model = model_object->get_model(); model != nullptr) {
+            const auto object_it = std::find(model->objects.begin(), model->objects.end(), model_object);
+            if (object_it != model->objects.end())
+                object_id = static_cast<std::uint64_t>(std::distance(model->objects.begin(), object_it) + 1);
+        }
+        if (outer || expert_risky) {
+            level = m_thermal_pattern_generator.level_for(object_id, m_layer->print_z, settings);
+        } else {
+            const std::uint64_t group_key = object_id ^
+                (static_cast<std::uint64_t>(std::max(0, layer_id())) << 32);
+            ThermalTopGroupState &group = m_thermal_pattern_top_groups[group_key];
+            level = m_thermal_pattern_generator.top_level_for(object_id, m_layer->print_z,
+                                                               group.group, settings);
+            ++group.lines;
+            group.seconds += nominal_duration;
+            const size_t max_lines = static_cast<size_t>(std::max(1, m_config.thermal_pattern_top_group_max_lines.value));
+            const double min_time = std::max(0., m_config.thermal_pattern_top_group_min_time.value);
+            if (group.lines >= max_lines || group.seconds + EPSILON >= min_time) {
+                ++group.group;
+                group.lines = 0;
+                group.seconds = 0.;
+            }
+        }
+    }
+
+    const double filament_ceiling = std::max(base, static_cast<double>(get_value_at(
+        m_config, m_config.thermal_pattern_max_temperature, ConfigFlowDomain::Filament, tool)));
+    const double machine_ceiling = std::max(1, m_config.machine_max_nozzle_temperature.get_at(tool));
+    const double step = get_value_at(m_config, m_config.thermal_pattern_temperature_step,
+                                     ConfigFlowDomain::Filament, tool);
+    if (!state.initialized) {
+        state.initialized = true;
+        state.target = static_cast<int>(std::lround(base));
+        state.predicted = base;
+    }
+
+    const double cool_time = ThermalPatternGenerator::settle_time(
+        state.target, base, settings.thermal_tolerance, settings.heat_tau, settings.cool_tau);
+    const double heat_time = std::min(
+        m_config.thermal_pattern_max_preheat.value,
+        std::max(0.0, ThermalPatternGenerator::settle_time(
+                          base, state.target, settings.thermal_tolerance, settings.heat_tau, settings.cool_tau) -
+                          state.last_surface_seconds * m_config.thermal_pattern_surface_heat_credit.value));
+    const double thermal_carry_limit = cool_time + m_config.thermal_pattern_min_base_dwell.value + heat_time;
+    const bool thermal_carry = !eligible && filament_enabled && !protected_role &&
+                               m_config.thermal_pattern_internal_policy.value == ThermalPatternInternalPolicy::Thermal &&
+                               state.target > static_cast<int>(std::lround(base)) &&
+                               state.non_surface_seconds + nominal_duration <= thermal_carry_limit + EPSILON;
+    const unsigned int desired = eligible ? ThermalPatternGenerator::target_temperature(
+        base, level, step, filament_ceiling, machine_ceiling) :
+        thermal_carry ? static_cast<unsigned int>(state.target) : static_cast<unsigned int>(std::lround(base));
+
+    const double predicted_start = state.predicted;
+    std::string gcode = std::move(inactive_tool_restore);
+    const bool target_changed = state.target != static_cast<int>(desired);
+    if (target_changed) {
+        gcode += GCodeWriter::set_temperature(desired, m_writer.get_gcode_flavor(), false,
+                                               static_cast<int>(tool), "THERMAL_PATTERN target");
+        state.target = static_cast<int>(desired);
+    }
+
+    if (eligible) {
+        gcode += Slic3r::format("; THERMAL_PATTERN tool=T%1% object=%2% level=%3% target=%4%C predicted=%5$.1fC role=%6%\n",
+                                tool, object_id, level, desired, predicted_start,
+                                outer ? "outer_wall" : top ? "top_surface" : "expert_risky_surface");
+        if (outer && level > 0 && m_config.thermal_pattern_speed_assist.value) {
+            const double assisted = ThermalPatternGenerator::assisted_speed(
+                speed, nominal_duration, predicted_start, desired, settings);
+            if (assisted + EPSILON < speed) {
+                gcode += Slic3r::format("; THERMAL_PATTERN_SPEED_ASSIST original=%1$.2fmm/s assisted=%2$.2fmm/s\n",
+                                        speed, assisted);
+                speed = assisted;
+            }
+        }
+    } else if (target_changed) {
+        gcode += Slic3r::format("; THERMAL_PATTERN restore tool=T%1% target=%2%C\n", tool, desired);
+    }
+
+    const double duration = speed > EPSILON ? unscale<double>(path.length()) / speed : 0.0;
+    state.non_surface_seconds = eligible ? 0.0 : state.non_surface_seconds + duration;
+    if (eligible)
+        state.last_surface_seconds = duration;
+    if (!eligible && desired == static_cast<unsigned int>(std::lround(base)))
+        state.non_surface_seconds = 0.0;
+    state.predicted = ThermalPatternGenerator::predicted_temperature(
+        state.predicted, desired, duration, settings.heat_tau, settings.cool_tau);
+    for (size_t other_tool = 0; other_tool < m_thermal_pattern_tool_states.size(); ++other_tool) {
+        if (other_tool == tool)
+            continue;
+        ThermalToolState &other = m_thermal_pattern_tool_states[other_tool];
+        if (other.initialized)
+            other.predicted = ThermalPatternGenerator::predicted_temperature(
+                other.predicted, other.target, duration, settings.heat_tau, settings.cool_tau);
+    }
+    return gcode;
+}
+
+std::string GCode::thermal_pattern_restore_tool(size_t tool, const char *reason)
+{
+    if (tool >= m_thermal_pattern_tool_states.size())
+        return {};
+    ThermalToolState &state = m_thermal_pattern_tool_states[tool];
+    if (!state.initialized)
+        return {};
+    const int base = static_cast<int>(std::lround(get_value_at(
+        m_config, m_config.nozzle_temperature, ConfigFlowDomain::Filament, static_cast<unsigned int>(tool))));
+    if (state.target == base)
+        return {};
+    state.target = base;
+    state.non_surface_seconds = 0.0;
+    return GCodeWriter::set_temperature(static_cast<unsigned int>(base), m_writer.get_gcode_flavor(), false,
+                                        static_cast<int>(tool), std::string("THERMAL_PATTERN restore ") + reason);
+}
+
+std::string GCode::thermal_pattern_restore_all()
+{
+    std::string gcode;
+    for (size_t tool = 0; tool < m_thermal_pattern_tool_states.size(); ++tool)
+        gcode += this->thermal_pattern_restore_tool(tool, "end of print");
+    return gcode;
+}
+
 std::string GCode::_extrude(const ExtrusionPath& path, std::string description, double speed)
 {
     std::string gcode;
@@ -7651,6 +7848,8 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
             m_resonance_avoidance = true;
         }
     }
+
+    gcode += this->thermal_pattern_before_path(path, speed);
 
     bool                        variable_speed = false;
     std::vector<ProcessedPoint> new_points{};
@@ -8585,11 +8784,14 @@ std::string GCode::set_extruder(unsigned int extruder_id, double print_z, bool b
     if (!m_writer.need_toolchange(extruder_id))
         return "";
 
+    const std::string thermal_restore = m_writer.extruder() == nullptr ? std::string() :
+        this->thermal_pattern_restore_tool(m_writer.extruder()->id(), "tool change");
+
     // if we are running a single-extruder setup, just set the extruder and return nothing
     if (!m_writer.multiple_extruders) {
         this->placeholder_parser().set("current_extruder", extruder_id);
 
-        std::string gcode;
+        std::string gcode = thermal_restore;
         // Append the filament start G-code.
         const std::string& filament_start_gcode = m_config.filament_start_gcode.get_at(extruder_id);
         if (!filament_start_gcode.empty()) {
@@ -8621,7 +8823,7 @@ std::string GCode::set_extruder(unsigned int extruder_id, double print_z, bool b
     m_toolchange_count++;
 
     // prepend retraction on the current extruder
-    std::string gcode = this->retract(true, false);
+    std::string gcode = thermal_restore + this->retract(true, false);
 
     // Always reset the extrusion path, even if the tool change retract is set to zero.
     m_wipe.reset_path();

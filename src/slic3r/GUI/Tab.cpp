@@ -2922,6 +2922,137 @@ optgroup->append_single_option_line("skirt_loops", "others_settings_skirt#loops"
         optgroup->append_single_option_line("fuzzy_skin_persistence", "others_settings_fuzzy_skin#skin-noise-persistence");
         optgroup->append_single_option_line("fuzzy_skin_first_layer", "others_settings_fuzzy_skin#apply-fuzzy-skin-to-first-layer");
 
+        optgroup = page->new_optgroup(L("Thermal Surface Patterning"), L"thermal_surface_patterning");
+        optgroup->append_single_option_line("thermal_pattern_mode");
+        optgroup->append_single_option_line("thermal_pattern_preset");
+        optgroup->append_single_option_line("thermal_pattern_seed");
+        optgroup->append_single_option_line("thermal_pattern_outer_walls");
+        optgroup->append_single_option_line("thermal_pattern_top_surfaces");
+        optgroup->append_single_option_line("thermal_pattern_max_level");
+        optgroup->append_single_option_line("thermal_pattern_top_max_level");
+        optgroup->append_single_option_line("thermal_pattern_band_median");
+        optgroup->append_single_option_line("thermal_pattern_band_sigma");
+        optgroup->append_single_option_line("thermal_pattern_band_min");
+        optgroup->append_single_option_line("thermal_pattern_band_max");
+        optgroup->append_single_option_line("thermal_pattern_dark_band_narrowing");
+        optgroup->append_single_option_line("thermal_pattern_stay_weight");
+        optgroup->append_single_option_line("thermal_pattern_adjacent_weight");
+        optgroup->append_single_option_line("thermal_pattern_two_away_weight");
+        optgroup->append_single_option_line("thermal_pattern_far_weight");
+        optgroup->append_single_option_line("thermal_pattern_darkness_bias");
+        optgroup->append_single_option_line("thermal_pattern_trend_persistence");
+        optgroup->append_single_option_line("thermal_pattern_trend_strength");
+        optgroup->append_single_option_line("thermal_pattern_accent_chance");
+        optgroup->append_single_option_line("thermal_pattern_accent_boost");
+        optgroup->append_single_option_line("thermal_pattern_accent_min");
+        optgroup->append_single_option_line("thermal_pattern_accent_max");
+        optgroup->append_single_option_line("thermal_pattern_top_group_min_time");
+        optgroup->append_single_option_line("thermal_pattern_top_group_max_lines");
+        optgroup->append_single_option_line("thermal_pattern_heat_tau");
+        optgroup->append_single_option_line("thermal_pattern_cool_tau");
+        optgroup->append_single_option_line("thermal_pattern_tolerance");
+        optgroup->append_single_option_line("thermal_pattern_surface_heat_credit");
+        optgroup->append_single_option_line("thermal_pattern_min_base_dwell");
+        optgroup->append_single_option_line("thermal_pattern_max_preheat");
+        optgroup->append_single_option_line("thermal_pattern_protect_risky_features");
+        optgroup->append_single_option_line("thermal_pattern_internal_policy");
+        optgroup->append_single_option_line("thermal_pattern_speed_assist");
+        optgroup->append_single_option_line("thermal_pattern_speed_max_factor");
+        optgroup->append_single_option_line("thermal_pattern_speed_min");
+        optgroup->m_on_change = [this, optgroup](t_config_option_key opt_key, boost::any value) {
+            if (opt_key == "thermal_pattern_preset") {
+                const auto preset = static_cast<ThermalPatternPreset>(boost::any_cast<int>(value));
+                auto set_float = [this, optgroup](const char *key, double v) {
+                    m_config->set_key_value(key, new ConfigOptionFloat(v));
+                    optgroup->set_value(key, v);
+                };
+                auto set_int = [this, optgroup](const char *key, int v) {
+                    m_config->set_key_value(key, new ConfigOptionInt(v));
+                    optgroup->set_value(key, v);
+                };
+
+                if (preset == ThermalPatternPreset::Subtle) {
+                    set_int("thermal_pattern_max_level", 4);
+                    set_int("thermal_pattern_top_max_level", 2);
+                    set_float("thermal_pattern_band_median", 1.6);
+                    set_float("thermal_pattern_band_sigma", 0.48);
+                    set_float("thermal_pattern_band_min", 0.48);
+                    set_float("thermal_pattern_band_max", 5.0);
+                    set_float("thermal_pattern_dark_band_narrowing", 0.05);
+                    set_float("thermal_pattern_stay_weight", 12.0);
+                    set_float("thermal_pattern_adjacent_weight", 6.0);
+                    set_float("thermal_pattern_two_away_weight", 1.0);
+                    set_float("thermal_pattern_far_weight", 0.01);
+                    set_float("thermal_pattern_darkness_bias", 0.70);
+                    set_float("thermal_pattern_trend_persistence", 0.92);
+                    set_float("thermal_pattern_trend_strength", 0.40);
+                    set_float("thermal_pattern_accent_chance", 0.04);
+                    set_int("thermal_pattern_accent_boost", 1);
+                    set_float("thermal_pattern_accent_min", 0.24);
+                    set_float("thermal_pattern_accent_max", 0.42);
+                    set_float("thermal_pattern_top_group_min_time", 2.0);
+                    set_int("thermal_pattern_top_group_max_lines", 96);
+                    set_float("thermal_pattern_min_base_dwell", 2.5);
+                    set_float("thermal_pattern_speed_max_factor", 3.0);
+                    set_float("thermal_pattern_speed_min", 35.0);
+                } else if (preset == ThermalPatternPreset::Dramatic) {
+                    set_int("thermal_pattern_max_level", 6);
+                    set_int("thermal_pattern_top_max_level", 4);
+                    set_float("thermal_pattern_band_median", 1.0);
+                    set_float("thermal_pattern_band_sigma", 0.75);
+                    set_float("thermal_pattern_band_min", 0.30);
+                    set_float("thermal_pattern_band_max", 7.0);
+                    set_float("thermal_pattern_dark_band_narrowing", 0.10);
+                    set_float("thermal_pattern_stay_weight", 8.0);
+                    set_float("thermal_pattern_adjacent_weight", 8.0);
+                    set_float("thermal_pattern_two_away_weight", 2.5);
+                    set_float("thermal_pattern_far_weight", 0.08);
+                    set_float("thermal_pattern_darkness_bias", 0.84);
+                    set_float("thermal_pattern_trend_persistence", 0.84);
+                    set_float("thermal_pattern_trend_strength", 0.95);
+                    set_float("thermal_pattern_accent_chance", 0.14);
+                    set_int("thermal_pattern_accent_boost", 2);
+                    set_float("thermal_pattern_accent_min", 0.20);
+                    set_float("thermal_pattern_accent_max", 0.48);
+                    set_float("thermal_pattern_top_group_min_time", 1.0);
+                    set_int("thermal_pattern_top_group_max_lines", 40);
+                    set_float("thermal_pattern_surface_heat_credit", 0.80);
+                    set_float("thermal_pattern_min_base_dwell", 1.5);
+                    set_float("thermal_pattern_max_preheat", 18.0);
+                    set_float("thermal_pattern_speed_max_factor", 5.0);
+                    set_float("thermal_pattern_speed_min", 25.0);
+                } else {
+                    set_int("thermal_pattern_max_level", 6);
+                    set_int("thermal_pattern_top_max_level", 3);
+                    set_float("thermal_pattern_band_median", 1.2);
+                    set_float("thermal_pattern_band_sigma", 0.60);
+                    set_float("thermal_pattern_band_min", 0.36);
+                    set_float("thermal_pattern_band_max", 6.0);
+                    set_float("thermal_pattern_dark_band_narrowing", 0.08);
+                    set_float("thermal_pattern_stay_weight", 10.0);
+                    set_float("thermal_pattern_adjacent_weight", 7.0);
+                    set_float("thermal_pattern_two_away_weight", 2.0);
+                    set_float("thermal_pattern_far_weight", 0.05);
+                    set_float("thermal_pattern_darkness_bias", 0.75);
+                    set_float("thermal_pattern_trend_persistence", 0.88);
+                    set_float("thermal_pattern_trend_strength", 0.65);
+                    set_float("thermal_pattern_accent_chance", 0.08);
+                    set_int("thermal_pattern_accent_boost", 2);
+                    set_float("thermal_pattern_accent_min", 0.24);
+                    set_float("thermal_pattern_accent_max", 0.48);
+                    set_float("thermal_pattern_top_group_min_time", 1.5);
+                    set_int("thermal_pattern_top_group_max_lines", 64);
+                    set_float("thermal_pattern_surface_heat_credit", 0.75);
+                    set_float("thermal_pattern_min_base_dwell", 2.0);
+                    set_float("thermal_pattern_max_preheat", 15.0);
+                    set_float("thermal_pattern_speed_max_factor", 4.0);
+                    set_float("thermal_pattern_speed_min", 30.0);
+                }
+                update_dirty();
+            }
+            on_value_change(opt_key, value);
+        };
+
         optgroup = page->new_optgroup(L("G-code output"), L"param_gcode");
         optgroup->append_single_option_line("reduce_infill_retraction", "others_settings_g_code_output#reduce-infill-retraction");
         optgroup->append_single_option_line("gcode_add_line_number", "others_settings_g_code_output#add-line-number");
@@ -4055,6 +4186,11 @@ void TabFilament::build()
         line.append_option(optgroup->get_option("nozzle_temperature"));
         optgroup->append_line(line);
 
+        optgroup = page->new_optgroup(L("Thermal Surface Patterning"), L"thermal_surface_patterning");
+        optgroup->append_single_option_line("thermal_pattern_enabled");
+        optgroup->append_single_option_line("thermal_pattern_temperature_step");
+        optgroup->append_single_option_line("thermal_pattern_max_temperature");
+
         optgroup = page->new_optgroup(L("Bed temperature"), L"param_bed_temp");
         // Initial label/tooltip are picked based on the printer selected at build time;
         // toggle_options() re-applies them whenever the user switches printers, so the
@@ -4950,6 +5086,7 @@ PageShp TabPrinter::build_kinematics_page()
 
         // machine max junction deviation
          append_option_line(optgroup, "machine_max_junction_deviation");
+         append_option_line(optgroup, "machine_max_nozzle_temperature");
     //optgroup = page->new_optgroup(L("Minimum feedrates"));
     //    append_option_line(optgroup, "machine_min_extruding_rate");
     //    append_option_line(optgroup, "machine_min_travel_rate");

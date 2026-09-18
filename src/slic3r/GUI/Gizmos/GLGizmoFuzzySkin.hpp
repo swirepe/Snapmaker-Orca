@@ -10,7 +10,7 @@ namespace Slic3r::GUI {
 class GLGizmoFuzzySkin : public GLGizmoPainterBase
 {
 public:
-    GLGizmoFuzzySkin(GLCanvas3D& parent, const std::string& icon_filename, unsigned int sprite_id);
+    GLGizmoFuzzySkin(GLCanvas3D& parent, const std::string& icon_filename, unsigned int sprite_id, bool thermal_pattern = false);
 
     void render_painter_gizmo() override;
 
@@ -22,9 +22,9 @@ protected:
 
     wxString handle_snapshot_action_name(bool shift_down, Button button_down) const override;
 
-    std::string get_gizmo_entering_text() const override { return _u8L("Entering Paint-on fuzzy skin"); }
-    std::string get_gizmo_leaving_text() const override { return _u8L("Leaving Paint-on fuzzy skin"); }
-    std::string get_action_snapshot_name() const override { return _u8L("Paint-on fuzzy skin editing"); }
+    std::string get_gizmo_entering_text() const override;
+    std::string get_gizmo_leaving_text() const override;
+    std::string get_action_snapshot_name() const override;
 
     EnforcerBlockerType get_left_button_state_type() const override { return EnforcerBlockerType::FUZZY_SKIN; }
     EnforcerBlockerType get_right_button_state_type() const override { return EnforcerBlockerType::NONE; }
@@ -45,6 +45,7 @@ private:
     // This map holds all translated description texts, so they can be easily referenced during layout calculations
     // etc. When language changes, GUI is recreated, and this class constructed again, so the change takes effect.
     std::map<std::string, wxString> m_desc;
+    bool                            m_thermal_pattern { false };
 };
 
 } // namespace Slic3r::GUI

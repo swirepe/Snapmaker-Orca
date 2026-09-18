@@ -19,6 +19,7 @@ enum class CalibMode : int {
     Calib_PA_Tower,
     Calib_Flow_Rate,
     Calib_Temp_Tower,
+    Calib_Thermal_Pattern,
     Calib_Vol_speed_Tower,
     Calib_VFA_Tower,
     Calib_Retraction_tower,
@@ -37,6 +38,8 @@ struct Calib_Params
     bool      print_numbers;
     double freqStartX, freqEndX, freqStartY, freqEndY;
     int test_model;
+    int thermal_max_level = 6;
+    double thermal_band_height = 5.0;
     std::vector<double> accelerations;
     std::vector<double> speeds;
 

@@ -48,6 +48,23 @@ enum class FuzzySkinMode {
     Combined,
 };
 
+enum class ThermalPatternMode {
+    Disabled,
+    AllSurfaces,
+    PaintedSurfaces,
+};
+
+enum class ThermalPatternPreset {
+    Subtle,
+    Natural,
+    Dramatic,
+};
+
+enum class ThermalPatternInternalPolicy {
+    Strict,
+    Thermal,
+};
+
 enum class NoiseType {
     Classic,
     Perlin,
@@ -514,6 +531,9 @@ CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(PrinterTechnology)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(GCodeFlavor)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(FuzzySkinType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(FuzzySkinMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(ThermalPatternMode)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(ThermalPatternPreset)
+CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(ThermalPatternInternalPolicy)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(NoiseType)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(InfillPattern)
 CONFIG_OPTION_ENUM_DECLARE_STATIC_MAPS(IroningType)
@@ -1062,6 +1082,42 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloat,                fuzzy_skin_scale))
     ((ConfigOptionInt,                  fuzzy_skin_octaves))
     ((ConfigOptionFloat,                fuzzy_skin_persistence))
+    ((ConfigOptionEnum<ThermalPatternMode>, thermal_pattern_mode))
+    ((ConfigOptionEnum<ThermalPatternPreset>, thermal_pattern_preset))
+    ((ConfigOptionInt,                  thermal_pattern_seed))
+    ((ConfigOptionBool,                 thermal_pattern_outer_walls))
+    ((ConfigOptionBool,                 thermal_pattern_top_surfaces))
+    ((ConfigOptionInt,                  thermal_pattern_max_level))
+    ((ConfigOptionInt,                  thermal_pattern_top_max_level))
+    ((ConfigOptionFloat,                thermal_pattern_band_median))
+    ((ConfigOptionFloat,                thermal_pattern_band_sigma))
+    ((ConfigOptionFloat,                thermal_pattern_band_min))
+    ((ConfigOptionFloat,                thermal_pattern_band_max))
+    ((ConfigOptionFloat,                thermal_pattern_dark_band_narrowing))
+    ((ConfigOptionFloat,                thermal_pattern_stay_weight))
+    ((ConfigOptionFloat,                thermal_pattern_adjacent_weight))
+    ((ConfigOptionFloat,                thermal_pattern_two_away_weight))
+    ((ConfigOptionFloat,                thermal_pattern_far_weight))
+    ((ConfigOptionFloat,                thermal_pattern_darkness_bias))
+    ((ConfigOptionFloat,                thermal_pattern_trend_persistence))
+    ((ConfigOptionFloat,                thermal_pattern_trend_strength))
+    ((ConfigOptionFloat,                thermal_pattern_accent_chance))
+    ((ConfigOptionInt,                  thermal_pattern_accent_boost))
+    ((ConfigOptionFloat,                thermal_pattern_accent_min))
+    ((ConfigOptionFloat,                thermal_pattern_accent_max))
+    ((ConfigOptionFloat,                thermal_pattern_top_group_min_time))
+    ((ConfigOptionInt,                  thermal_pattern_top_group_max_lines))
+    ((ConfigOptionFloat,                thermal_pattern_heat_tau))
+    ((ConfigOptionFloat,                thermal_pattern_cool_tau))
+    ((ConfigOptionFloat,                thermal_pattern_tolerance))
+    ((ConfigOptionFloat,                thermal_pattern_surface_heat_credit))
+    ((ConfigOptionFloat,                thermal_pattern_min_base_dwell))
+    ((ConfigOptionFloat,                thermal_pattern_max_preheat))
+    ((ConfigOptionBool,                 thermal_pattern_protect_risky_features))
+    ((ConfigOptionEnum<ThermalPatternInternalPolicy>, thermal_pattern_internal_policy))
+    ((ConfigOptionBool,                 thermal_pattern_speed_assist))
+    ((ConfigOptionFloat,                thermal_pattern_speed_max_factor))
+    ((ConfigOptionFloat,                thermal_pattern_speed_min))
     ((ConfigOptionFloats,               gap_infill_speed))
     ((ConfigOptionInt,                  sparse_infill_filament))
     ((ConfigOptionFloatOrPercent,       sparse_infill_line_width))
@@ -1195,6 +1251,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionFloats,               machine_min_travel_rate))
     // M205 S... [mm/sec]
     ((ConfigOptionFloats,               machine_min_extruding_rate))
+    ((ConfigOptionInts,                 machine_max_nozzle_temperature))
 
     //resonance avoidance ported from qidi slicer
     ((ConfigOptionBool,                 resonance_avoidance))
@@ -1235,6 +1292,9 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionInts,                temperature_vitrification))  //BBS
     ((ConfigOptionBools,               filament_is_high_temperature))
     ((ConfigOptionFloats,              filament_max_volumetric_speed))
+    ((ConfigOptionBools,               thermal_pattern_enabled))
+    ((ConfigOptionFloats,              thermal_pattern_temperature_step))
+    ((ConfigOptionInts,                thermal_pattern_max_temperature))
     ((ConfigOptionInts,                required_nozzle_HRC))
     // BBS
     ((ConfigOptionBool,                scan_first_layer))
