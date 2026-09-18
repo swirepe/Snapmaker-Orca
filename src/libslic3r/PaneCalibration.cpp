@@ -22,6 +22,53 @@ std::vector<const PaneCalibrationFactorSetting *> enabled_factors(const PaneCali
     return out;
 }
 
+bool is_categorical(PaneCalibrationFactor factor)
+{
+    return factor == PaneCalibrationFactor::IroningType || factor == PaneCalibrationFactor::IroningAngle;
+}
+
+void validate_factor(const PaneCalibrationFactorSetting &factor)
+{
+    if (is_categorical(factor.factor))
+        return;
+    if (!std::isfinite(factor.minimum) || !std::isfinite(factor.maximum))
+        throw std::invalid_argument("Calibration factor endpoints must be finite");
+    if (factor.maximum <= factor.minimum)
+        throw std::invalid_argument("A numeric calibration factor maximum must be greater than its minimum");
+
+    switch (factor.factor) {
+    case PaneCalibrationFactor::NozzleTemperature:
+        if (factor.minimum < 1. || factor.maximum > 500.)
+            throw std::invalid_argument("Nozzle-temperature levels must be between 1 and 500 degrees Celsius");
+        break;
+    case PaneCalibrationFactor::PrintSpeed:
+    case PaneCalibrationFactor::IroningSpeed:
+        if (factor.minimum < 1.)
+            throw std::invalid_argument("Speed levels must be at least 1 mm/s");
+        break;
+    case PaneCalibrationFactor::FlowRatio:
+        if (factor.minimum < 0.01 || factor.maximum > 2.)
+            throw std::invalid_argument("Flow-ratio levels must be between 0.01 and 2");
+        break;
+    case PaneCalibrationFactor::LayerHeight:
+    case PaneCalibrationFactor::LineWidth:
+    case PaneCalibrationFactor::IroningSpacing:
+        if (factor.minimum <= 0.)
+            throw std::invalid_argument("Dimension levels must be greater than zero");
+        break;
+    case PaneCalibrationFactor::MaxFanSpeed:
+    case PaneCalibrationFactor::WallFanSpeed:
+    case PaneCalibrationFactor::IroningFanSpeed:
+    case PaneCalibrationFactor::AuxiliaryFanSpeed:
+    case PaneCalibrationFactor::IroningFlow:
+        if (factor.minimum < 0. || factor.maximum > 100.)
+            throw std::invalid_argument("Fan and percentage levels must be between 0 and 100");
+        break;
+    case PaneCalibrationFactor::IroningType:
+    case PaneCalibrationFactor::IroningAngle: break;
+    }
+}
+
 unsigned gf4_multiply(unsigned lhs, unsigned rhs)
 {
     // GF(4), represented as a + bx with x^2 = x + 1. Addition is XOR.
@@ -200,8 +247,10 @@ std::vector<double> pane_calibration_linear_values(double minimum, double maximu
 {
     if (levels < 2)
         throw std::invalid_argument("A calibration factor requires at least two levels");
-    if (maximum < minimum)
-        throw std::invalid_argument("A calibration factor maximum must not be lower than its minimum");
+    if (!std::isfinite(minimum) || !std::isfinite(maximum))
+        throw std::invalid_argument("Calibration factor endpoints must be finite");
+    if (maximum <= minimum)
+        throw std::invalid_argument("A calibration factor maximum must be greater than its minimum");
 
     std::vector<double> values(levels, minimum);
     const double step = (maximum - minimum) / double(levels - 1);
@@ -241,6 +290,9 @@ PaneCalibrationPlan build_pane_calibration_plan(const PaneCalibrationConfig &con
 {
     const std::vector<const PaneCalibrationFactorSetting *> factors = enabled_factors(config);
     PaneCalibrationPlan plan;
+
+    for (const PaneCalibrationFactorSetting *factor : factors)
+        validate_factor(*factor);
 
     if (config.design == PaneCalibrationDesign::Linear) {
         if (factors.size() != 1)

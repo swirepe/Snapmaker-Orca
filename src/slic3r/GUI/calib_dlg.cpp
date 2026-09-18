@@ -1201,12 +1201,17 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
                              factor.factor == PaneCalibrationFactor::AuxiliaryFanSpeed || factor.factor == PaneCalibrationFactor::IroningFlow;
         const double lower = factor.factor == PaneCalibrationFactor::NozzleTemperature ? 100. :
                              factor.factor == PaneCalibrationFactor::FlowRatio ? 0.5 : 0.;
+        const double safe_lower = factor.factor == PaneCalibrationFactor::PrintSpeed ||
+                                  factor.factor == PaneCalibrationFactor::IroningSpeed ? 1. :
+                                  factor.factor == PaneCalibrationFactor::LayerHeight ||
+                                  factor.factor == PaneCalibrationFactor::LineWidth ||
+                                  factor.factor == PaneCalibrationFactor::IroningSpacing ? 0.001 : lower;
         const double upper = factor.factor == PaneCalibrationFactor::NozzleTemperature ? 500. :
                              factor.factor == PaneCalibrationFactor::FlowRatio ? 1.5 :
                              percent ? 100. : 500.;
         const int digits = factor.factor == PaneCalibrationFactor::NozzleTemperature || percent ? 0 : 3;
         for (wxSpinCtrlDouble *spin : {controls.minimum, controls.maximum}) {
-            spin->SetRange(lower, upper);
+            spin->SetRange(safe_lower, upper);
             spin->SetDigits(digits);
             spin->SetIncrement(digits == 0 ? 1. : 0.01);
             spin->SetMinSize(FromDIP(wxSize(95, -1)));
@@ -1311,6 +1316,7 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
     m_labels->Bind(wxEVT_CHECKBOX, refresh);
     m_pane_extruder->Bind(wxEVT_SPINCTRL, refresh);
     m_label_extruder->Bind(wxEVT_SPINCTRL, refresh);
+    Bind(wxEVT_SHOW, &Pane_Calibration_Dlg::on_show, this);
 
     const std::string section = m_tool == PaneCalibrationTool::ClearFilament ? "clear_filament_calibration" : "ironing_calibration";
     auto load_integer = [&](const std::string &key, int fallback) {
@@ -1344,8 +1350,36 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
     m_label_extruder->SetValue(load_integer("label_extruder", 1));
 
     wxGetApp().UpdateDlgDarkUI(this);
+    refresh_printer_capabilities();
     refresh_preview();
     CentreOnParent();
+}
+
+void Pane_Calibration_Dlg::refresh_printer_capabilities()
+{
+    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+    const auto *nozzle_diameters = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
+    const int extruder_count = std::max<int>(1, nozzle_diameters == nullptr ? 1 : int(nozzle_diameters->values.size()));
+    for (wxSpinCtrl *control : {m_pane_extruder, m_label_extruder}) {
+        const int value = std::clamp(control->GetValue(), 1, extruder_count);
+        control->SetRange(1, extruder_count);
+        control->SetValue(value);
+    }
+
+    const auto *auxiliary_fan = full_config.opt<ConfigOptionBool>("auxiliary_fan");
+    const bool supports_auxiliary_fan = auxiliary_fan != nullptr && auxiliary_fan->value;
+    for (FactorControls &factor : m_factors) {
+        if (factor.factor != PaneCalibrationFactor::AuxiliaryFanSpeed)
+            continue;
+        factor.enabled->Enable(supports_auxiliary_fan);
+        if (supports_auxiliary_fan)
+            factor.enabled->UnsetToolTip();
+        else {
+            factor.enabled->SetValue(false);
+            factor.enabled->SetToolTip(_L("The active printer does not expose an auxiliary fan."));
+        }
+        break;
+    }
 }
 
 PaneCalibrationConfig Pane_Calibration_Dlg::read_config() const
@@ -1444,6 +1478,15 @@ void Pane_Calibration_Dlg::on_dpi_changed(const wxRect &)
 {
     Refresh();
     Layout();
+}
+
+void Pane_Calibration_Dlg::on_show(wxShowEvent &event)
+{
+    if (event.IsShown()) {
+        refresh_printer_capabilities();
+        refresh_preview();
+    }
+    event.Skip();
 }
 
 }} // namespace Slic3r::GUI

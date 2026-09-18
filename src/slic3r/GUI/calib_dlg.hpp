@@ -199,8 +199,10 @@ private:
     };
 
     PaneCalibrationConfig read_config() const;
+    void                  refresh_printer_capabilities();
     void                  refresh_preview();
     void                  on_start(wxCommandEvent &event);
+    void                  on_show(wxShowEvent &event);
 
     Plater                      *m_plater {nullptr};
     PaneCalibrationTool          m_tool {PaneCalibrationTool::ClearFilament};
