@@ -1147,8 +1147,9 @@ std::string WipeTowerIntegration::tool_change(GCode& gcodegen, int extruder_id, 
             restored_position.z() = tower_z;
             gcodegen.writer().set_position(restored_position);
         }
+        gcode += gcodegen.travel_to(wipe_tower_point_to_object_point(gcodegen, start_machine), erMixed,
+                                    "Return to Local-Z wipe tower reserve", tower_z);
         gcode += gcodegen.unretract();
-        gcode += gcodegen.writer().travel_to_xy(start_machine.cast<double>(), "Return to Local-Z wipe tower reserve");
 
         gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Height) + float_to_string_decimal_point(layer_height, 3) + "\n";
         gcode += ";" + GCodeProcessor::reserved_tag(GCodeProcessor::ETags::Role) + ExtrusionEntity::role_to_string(erWipeTower) + "\n";
@@ -1752,6 +1753,7 @@ void GCode::do_export(Print* print, const char* path, GCodeProcessorResult* resu
 
     // BBS
     m_curr_print = print;
+    m_non_traversable_travel.initialize(*print);
 
     GCodeWriter::full_gcode_comment = print->config().gcode_comments;
     CNumericLocalesSetter locales_setter;
@@ -8253,9 +8255,36 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         this->origin in order to get G-code coordinates.  */
     Polyline travel{this->last_pos(), point};
 
+    const unsigned int active_extruder = m_writer.extruder() == nullptr ? 0 : m_writer.extruder()->id();
+    const bool         hard_keepout    = m_non_traversable_travel.has_obstacles_for(active_extruder);
+    const double       nominal_z       = z == DBL_MAX ? m_nominal_z : z;
+    const Point        global_offset   = scaled<coord_t>(m_origin);
+    const auto route_around_keepouts = [this, active_extruder, global_offset](const Polyline &local_travel, double travel_z) {
+        Polyline global_travel = local_travel;
+        global_travel.translate(global_offset);
+        global_travel = m_non_traversable_travel.route(global_travel, travel_z, active_extruder);
+        global_travel.translate(-global_offset);
+        return global_travel;
+    };
+    const auto route_for_retraction = [this, &route_around_keepouts, hard_keepout, nominal_z,
+                                       force_z = m_need_change_layer_lift_z](const Polyline &candidate) {
+        if (!hard_keepout)
+            return candidate;
+        const bool   will_travel_xy = candidate.first_point() != candidate.last_point();
+        const double travel_z       = this->m_writer.planned_travel_z(nominal_z, force_z, will_travel_xy);
+        try {
+            return route_around_keepouts(candidate, travel_z);
+        } catch (const SlicingError &) {
+            // A configured retraction lift may put the final route above this
+            // obstacle. The mandatory final routing pass will either find that
+            // route or report the error.
+            return candidate;
+        }
+    };
+
     // check whether a straight travel move would need retraction
     LiftType lift_type        = LiftType::SpiralLift;
-    bool     needs_retraction = this->needs_retraction(travel, role, lift_type);
+    bool     needs_retraction = this->needs_retraction(route_for_retraction(travel), role, lift_type);
     // check whether wipe could be disabled without causing visible stringing
     bool could_be_wipe_disabled = false;
     // Save state of use_external_mp_once for the case that will be needed to call twice m_avoid_crossing_perimeters.travel_to.
@@ -8294,7 +8323,7 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
     {
         travel = m_avoid_crossing_perimeters.travel_to(*this, point, &could_be_wipe_disabled);
         // check again whether the new travel path still needs a retraction
-        needs_retraction = this->needs_retraction(travel, role, lift_type);
+        needs_retraction = this->needs_retraction(route_for_retraction(travel), role, lift_type);
         // if (needs_retraction && m_layer_index > 1) exit(0);
     }
 
@@ -8313,15 +8342,18 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         // When "Wipe while retracting" is enabled, then extruder moves to another position, and travel from this position can cross perimeters.
         // Because of it, it is necessary to call avoid crossing perimeters again with new starting point after calling retraction()
         // FIXME Lukas H.: Try to predict if this second calling of avoid crossing perimeters will be needed or not. It could save computations.
-        if (last_post_before_retract != this->last_pos() && m_config.reduce_crossing_wall) {
-            // If in the previous call of m_avoid_crossing_perimeters.travel_to was use_external_mp_once set to true restore this value for
-            // next call.
-            if (used_external_mp_once)
-                m_avoid_crossing_perimeters.use_external_mp_once();
-            travel = m_avoid_crossing_perimeters.travel_to(*this, point);
-            // If state of use_external_mp_once was changed reset it to right value.
-            if (used_external_mp_once)
-                m_avoid_crossing_perimeters.reset_once_modifiers();
+        if (last_post_before_retract != this->last_pos()) {
+            travel = Polyline{this->last_pos(), point};
+            if (m_config.reduce_crossing_wall) {
+                // If use_external_mp_once was set for the previous call of
+                // m_avoid_crossing_perimeters.travel_to, restore it for the next call.
+                if (used_external_mp_once)
+                    m_avoid_crossing_perimeters.use_external_mp_once();
+                travel = m_avoid_crossing_perimeters.travel_to(*this, point);
+                // If state of use_external_mp_once was changed reset it to right value.
+                if (used_external_mp_once)
+                    m_avoid_crossing_perimeters.reset_once_modifiers();
+            }
         }
     } else {
         // Reset the wipe path when traveling, so one would not wipe along an old path.
@@ -8335,11 +8367,36 @@ std::string GCode::travel_to(const Point& point, ExtrusionRole role, std::string
         // }
     }
 
+    if (hard_keepout && travel.size() >= 2) {
+        const bool   will_travel_xy  = travel.first_point() != travel.last_point();
+        const double travel_z        = m_writer.planned_travel_z(nominal_z, m_need_change_layer_lift_z, will_travel_xy);
+        const double destination_z   = m_writer.planned_destination_z(nominal_z, m_need_change_layer_lift_z, will_travel_xy);
+        const bool   xy_before_z     = will_travel_xy && !m_writer.is_current_position_clear();
+        const Point  vertical_origin = (xy_before_z ? travel.last_point() : travel.first_point()) + global_offset;
+        m_non_traversable_travel.validate_vertical(vertical_origin, m_writer.get_position().z(), destination_z, active_extruder);
+        travel = route_around_keepouts(travel, travel_z);
+    }
+
     // if needed, write the gcode_label_objects_end then gcode_label_objects_start
     m_writer.add_object_change_labels(gcode);
 
     // use G1 because we rely on paths being straight (G0 may make round paths)
     if (travel.size() >= 2) {
+        if (hard_keepout) {
+            const bool will_travel_xy = travel.first_point() != travel.last_point();
+            const bool xy_before_z    = will_travel_xy && !m_writer.is_current_position_clear();
+            const bool force_z        = m_need_change_layer_lift_z;
+            if (!xy_before_z)
+                gcode += m_writer.travel_to_z_separately(nominal_z, comment, force_z, will_travel_xy);
+            m_need_change_layer_lift_z = false;
+            for (size_t i = 1; i < travel.size(); ++i)
+                gcode += m_writer.travel_to_xy(this->point_to_gcode(travel.points[i]), comment);
+            if (xy_before_z)
+                gcode += m_writer.travel_to_z_separately(nominal_z, comment, force_z, will_travel_xy);
+            this->set_last_pos(travel.points.back());
+            return gcode;
+        }
+
         // Orca: use `travel_to_xyz` to ensure we start at the correct z, in case we moved z in custom/filament change gcode
         if (false /*m_spiral_vase*/) {
             // No lazy z lift for spiral vase mode

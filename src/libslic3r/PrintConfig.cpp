@@ -930,6 +930,13 @@ void PrintConfigDef::init_fff_params()
     def->label = L("The number of other layers print sequence");
     def->set_default_value(new ConfigOptionInt{0});
 
+    def = this->add("non_traversable_extruders", coInts);
+    def->label = L("Blocked extruders");
+    def->tooltip = L("Extruders that may not travel through a non-traversable space. A value of 0 means all current and future extruders.");
+    def->cli = ConfigOptionDef::nocli;
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionInts{0});
+
     def = this->add("first_layer_sequence_choice", coEnum);
     def->category = L("Quality");
     def->label = L("First layer filament sequence");

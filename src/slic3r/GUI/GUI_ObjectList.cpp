@@ -3637,7 +3637,8 @@ wxDataViewItem ObjectList::add_settings_item(wxDataViewItem parent_item, const D
     const bool is_layer_settings = m_objects_model->GetItemType(parent_item) == itLayer;
     if (!is_object_settings) {
         ModelVolumeType volume_type = m_objects_model->GetVolumeType(parent_item);
-        if (volume_type == ModelVolumeType::NEGATIVE_VOLUME || volume_type == ModelVolumeType::SUPPORT_BLOCKER || volume_type == ModelVolumeType::SUPPORT_ENFORCER)
+        if (volume_type == ModelVolumeType::NEGATIVE_VOLUME || volume_type == ModelVolumeType::SUPPORT_BLOCKER ||
+            volume_type == ModelVolumeType::SUPPORT_ENFORCER || volume_type == ModelVolumeType::NON_TRAVERSABLE_SPACE)
             return ret;
     }
 
@@ -5267,6 +5268,7 @@ void ObjectList::change_part_type()
     if (!volume->is_svg() && !volume->is_text()) {
         names.Add(_L("Support Blocker"));
         names.Add(_L("Support Enforcer"));
+        names.Add(_L("Non-traversable space"));
     }
 
     SingleChoiceDialog dlg(_L("Type:"), _L("Choose part type"), names, int(type));
@@ -5281,6 +5283,39 @@ void ObjectList::change_part_type()
     wxDataViewItemArray sel = reorder_volumes_and_get_selection(obj_idx, [volume](const ModelVolume* vol) { return vol == volume; });
     if (!sel.IsEmpty())
         select_item(sel.front());
+}
+
+void ObjectList::set_non_traversable_blocks_all()
+{
+    ModelVolume *volume = get_selected_model_volume();
+    if (volume == nullptr || !volume->is_non_traversable() || volume->blocks_all_extruders())
+        return;
+
+    take_snapshot("Set non-traversable space extruders");
+    volume->set_blocks_all_extruders();
+    wxGetApp().plater()->update();
+    Refresh();
+}
+
+void ObjectList::toggle_non_traversable_extruder(unsigned int extruder_id)
+{
+    ModelVolume *volume = get_selected_model_volume();
+    if (volume == nullptr || !volume->is_non_traversable())
+        return;
+
+    std::vector<unsigned int> blocked = volume->blocks_all_extruders() ? std::vector<unsigned int>{extruder_id} :
+                                                                        volume->blocked_extruders();
+    if (!volume->blocks_all_extruders()) {
+        if (auto it = std::find(blocked.begin(), blocked.end(), extruder_id); it == blocked.end())
+            blocked.emplace_back(extruder_id);
+        else
+            blocked.erase(it);
+    }
+
+    take_snapshot("Set non-traversable space extruders");
+    volume->set_blocked_extruders(blocked);
+    wxGetApp().plater()->update();
+    Refresh();
 }
 
 void ObjectList::last_volume_is_deleted(const int obj_idx)
