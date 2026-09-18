@@ -268,6 +268,9 @@ function build_slicer() {
             cp -pR "../src$BUILD_DIR_CONFIG_SUBDIR/Snapmaker_Orca_profile_validator.app" ./Snapmaker_Orca_profile_validator.app
             # delete .DS_Store file
             find ./Snapmaker_Orca_profile_validator.app/ -name '.DS_Store' -delete
+            # Linker-signed helper bundles do not contain a resource seal. Sign
+            # the bundle itself so macOS accepts the packaged copy.
+            codesign --force --deep --sign - ./Snapmaker_Orca_profile_validator.app
         fi
 
         # Generate dSYM debug symbols for debugging and Sentry crash reporting
@@ -394,6 +397,7 @@ function build_universal() {
             "$PROJECT_DIR/build/x86_64/Snapmaker_Orca/Snapmaker_Orca_profile_validator.app/$VALIDATOR_BINARY_PATH" \
             "$PROJECT_DIR/build/arm64/Snapmaker_Orca/Snapmaker_Orca_profile_validator.app/$VALIDATOR_BINARY_PATH" \
             -output "$UNIVERSAL_VALIDATOR_APP/$VALIDATOR_BINARY_PATH"
+        codesign --force --deep --sign - "$UNIVERSAL_VALIDATOR_APP"
             
         echo "Universal binary for Snapmaker_Orca_profile_validator created at $UNIVERSAL_VALIDATOR_APP"
     fi
