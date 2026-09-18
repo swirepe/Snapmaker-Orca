@@ -326,13 +326,14 @@ wxBitmap SettingsFactory::get_category_bitmap(const std::string& category_name, 
 //-------------------------------------
 
 // Note: id accords to type of the sub-object (adding volume), so sequence of the menu items is important
-static const constexpr std::array<std::pair<const char *, const char *>, 5> ADD_VOLUME_MENU_ITEMS = {{
+static const constexpr std::array<std::pair<const char *, const char *>, 6> ADD_VOLUME_MENU_ITEMS = {{
     //       menu_item Name              menu_item bitmap name
         {L("Add part"),              "menu_add_part" },           // ~ModelVolumeType::MODEL_PART
         {L("Add negative part"),     "menu_add_negative" },       // ~ModelVolumeType::NEGATIVE_VOLUME
         {L("Add modifier"),          "menu_add_modifier"},         // ~ModelVolumeType::PARAMETER_MODIFIER
         {L("Add support blocker"),   "menu_support_blocker"},     // ~ModelVolumeType::SUPPORT_BLOCKER
         {L("Add support enforcer"),  "menu_support_enforcer"},     // ~ModelVolumeType::SUPPORT_ENFORCER
+        {L("Add non-traversable space"), "menu_non_traversable"},  // ~ModelVolumeType::NON_TRAVERSABLE_SPACE
 }};
 
 // Note: id accords to type of the sub-object (adding volume), so sequence of the menu items is important
@@ -1798,8 +1799,39 @@ wxMenu* MenuFactory::part_menu()
 {
     append_menu_items_convert_unit(&m_part_menu);
     append_menu_item_change_filament(&m_part_menu);
+    append_menu_item_blocked_extruders(&m_part_menu);
     append_menu_item_per_object_settings(&m_part_menu);
     return &m_part_menu;
+}
+
+void MenuFactory::append_menu_item_blocked_extruders(wxMenu *menu)
+{
+    const wxString menu_name = _L("Blocked extruders");
+    if (const int old_id = menu->FindItem(menu_name); old_id != wxNOT_FOUND)
+        menu->Destroy(old_id);
+
+    ModelVolume *volume = obj_list()->get_selected_model_volume();
+    if (volume == nullptr || !volume->is_non_traversable())
+        return;
+
+    auto *selection_menu = new wxMenu();
+    wxMenuItem *all_item = selection_menu->AppendCheckItem(wxID_ANY, _L("All extruders"));
+    all_item->Check(volume->blocks_all_extruders());
+    m_parent->Bind(wxEVT_MENU, [](wxCommandEvent &) { obj_list()->set_non_traversable_blocks_all(); }, all_item->GetId());
+
+    const std::vector<unsigned int> ordered_ids = ui_ordered_filament_ids();
+    for (size_t display_idx = 0; display_idx < ordered_ids.size(); ++display_idx) {
+        const unsigned int stored_id = ordered_ids[display_idx];
+        if (stored_id == 0)
+            continue;
+        wxMenuItem *item = selection_menu->AppendCheckItem(
+            wxID_ANY, filament_menu_item_name(int(stored_id), int(display_idx + 1)));
+        item->Check(!volume->blocks_all_extruders() && volume->blocks_extruder(stored_id - 1));
+        m_parent->Bind(wxEVT_MENU,
+                       [stored_id](wxCommandEvent &) { obj_list()->toggle_non_traversable_extruder(stored_id - 1); }, item->GetId());
+    }
+
+    menu->AppendSubMenu(selection_menu, menu_name);
 }
 
 wxMenu* MenuFactory::text_part_menu()

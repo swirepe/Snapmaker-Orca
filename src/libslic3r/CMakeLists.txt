@@ -221,6 +221,8 @@ set(lisbslic3r_sources
     GCode/FanMover.hpp
     GCode/GCodeProcessor.cpp
     GCode/GCodeProcessor.hpp
+    GCode/NonTraversableTravel.cpp
+    GCode/NonTraversableTravel.hpp
     GCode.hpp
     GCode/PchipInterpolatorHelper.cpp
     GCode/PchipInterpolatorHelper.hpp

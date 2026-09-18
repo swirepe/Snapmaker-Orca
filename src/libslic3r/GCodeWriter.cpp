@@ -665,6 +665,41 @@ std::string GCodeWriter::travel_to_z(double z, const std::string &comment, bool 
     return this->_travel_to_z(z, comment);
 }
 
+double GCodeWriter::planned_travel_z(double nominal_z, bool force_z, bool will_travel_xy) const
+{
+    // travel_to_xyz deliberately restores XY before Z when a preceding custom
+    // G-code block left the physical position unknown. Preserve that ordering.
+    if (!this->is_current_position_clear() && will_travel_xy)
+        return m_pos.z();
+    return this->planned_destination_z(nominal_z, force_z, will_travel_xy);
+}
+
+double GCodeWriter::planned_destination_z(double nominal_z, bool force_z, bool will_travel_xy) const
+{
+    if (std::abs(m_to_lift) > EPSILON) {
+        if ((!this->is_current_position_clear() || will_travel_xy) && m_to_lift + m_pos.z() > nominal_z)
+            return m_to_lift + m_pos.z();
+        return nominal_z;
+    }
+    if (!force_z && !this->will_move_z(nominal_z))
+        return m_pos.z();
+    return nominal_z;
+}
+
+std::string GCodeWriter::travel_to_z_separately(double nominal_z, const std::string &comment, bool force_z, bool will_travel_xy)
+{
+    if (std::abs(m_to_lift) > EPSILON) {
+        assert(std::abs(m_lifted) < EPSILON);
+        const double target_z = this->planned_destination_z(nominal_z, force_z, will_travel_xy);
+        m_lifted             = std::max(0., target_z - nominal_z);
+        m_to_lift            = 0.;
+        if (std::abs(target_z - m_pos.z()) < EPSILON)
+            return {};
+        return this->_travel_to_z(target_z, comment);
+    }
+    return this->travel_to_z(nominal_z, comment, force_z);
+}
+
 std::string GCodeWriter::_travel_to_z(double z, const std::string &comment)
 {
     m_pos(2) = z;
