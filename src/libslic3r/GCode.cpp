@@ -8579,8 +8579,14 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
         gcode += ";_EXTRUDE_END\n";
     }
 
-    if (fuzzy_surface)
+    if (fuzzy_surface) {
+        const unsigned int active_extruder = m_writer.extruder() == nullptr ? 0 : m_writer.extruder()->id();
+        if (m_non_traversable_travel.has_obstacles_for(active_extruder)) {
+            const Point global_position = path.last_point() + scaled<coord_t>(m_origin);
+            m_non_traversable_travel.validate_vertical(global_position, m_writer.get_position().z(), m_nominal_z, active_extruder);
+        }
         gcode += m_writer.travel_to_z(m_nominal_z, "restore nominal Z after fuzzy surface");
+    }
 
     if (path.role() != ExtrusionRole::erGapFill) {
         m_last_notgapfill_extrusion_role = path.role();
