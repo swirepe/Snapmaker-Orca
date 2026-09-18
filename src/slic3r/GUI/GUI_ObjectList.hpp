@@ -411,6 +411,8 @@ public:
 
     ModelVolume* get_selected_model_volume();
     void change_part_type();
+    void set_non_traversable_blocks_all();
+    void toggle_non_traversable_extruder(unsigned int extruder_id);
 
     void last_volume_is_deleted(const int obj_idx);
     void update_and_show_object_settings_item();

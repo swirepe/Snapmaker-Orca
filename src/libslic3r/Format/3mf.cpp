@@ -368,6 +368,7 @@ ModelVolumeType type_from_string(const std::string &s)
     if (s == "ParameterModifier") return ModelVolumeType::PARAMETER_MODIFIER;
     if (s == "SupportEnforcer") return ModelVolumeType::SUPPORT_ENFORCER;
     if (s == "SupportBlocker") return ModelVolumeType::SUPPORT_BLOCKER;
+    if (s == "NonTraversableSpace" || s == "non_traversable_space") return ModelVolumeType::NON_TRAVERSABLE_SPACE;
     // Default value if invalud type string received.
     return ModelVolumeType::MODEL_PART;
 }
@@ -2043,6 +2044,7 @@ ModelVolumeType type_from_string(const std::string &s)
             "source_offset_y",
             "source_offset_z",
             "extruder",
+            "non_traversable_extruders",
             "modifier"
         };
 

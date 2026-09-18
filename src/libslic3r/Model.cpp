@@ -2564,6 +2564,66 @@ int ModelVolume::extruder_id() const
     return extruder_id;
 }
 
+static constexpr const char *NON_TRAVERSABLE_EXTRUDERS_KEY = "non_traversable_extruders";
+
+bool ModelVolume::blocks_all_extruders() const
+{
+    if (!this->is_non_traversable())
+        return false;
+    const auto *option = dynamic_cast<const ConfigOptionInts *>(this->config.option(NON_TRAVERSABLE_EXTRUDERS_KEY));
+    return option == nullptr || option->values.empty() || option->values.front() == 0;
+}
+
+bool ModelVolume::blocks_extruder(unsigned int extruder_id) const
+{
+    if (!this->is_non_traversable())
+        return false;
+    if (this->blocks_all_extruders())
+        return true;
+
+    const auto *option = dynamic_cast<const ConfigOptionInts *>(this->config.option(NON_TRAVERSABLE_EXTRUDERS_KEY));
+    const int   stored_id = int(extruder_id) + 1;
+    return option != nullptr && std::find(option->values.begin(), option->values.end(), stored_id) != option->values.end();
+}
+
+std::vector<unsigned int> ModelVolume::blocked_extruders() const
+{
+    std::vector<unsigned int> out;
+    if (this->blocks_all_extruders())
+        return out;
+
+    const auto *option = dynamic_cast<const ConfigOptionInts *>(this->config.option(NON_TRAVERSABLE_EXTRUDERS_KEY));
+    if (option != nullptr) {
+        out.reserve(option->values.size());
+        for (int stored_id : option->values)
+            if (stored_id > 0)
+                out.emplace_back(unsigned(stored_id - 1));
+    }
+    return out;
+}
+
+void ModelVolume::set_blocks_all_extruders()
+{
+    this->config.set_key_value(NON_TRAVERSABLE_EXTRUDERS_KEY, new ConfigOptionInts{0});
+}
+
+void ModelVolume::set_blocked_extruders(const std::vector<unsigned int> &extruder_ids)
+{
+    std::vector<int> stored_ids;
+    stored_ids.reserve(extruder_ids.size());
+    for (unsigned int extruder_id : extruder_ids)
+        stored_ids.emplace_back(int(extruder_id) + 1);
+    std::sort(stored_ids.begin(), stored_ids.end());
+    stored_ids.erase(std::unique(stored_ids.begin(), stored_ids.end()), stored_ids.end());
+
+    // An empty explicit subset would make the modifier silently ineffective.
+    // Treat it as the safer live "all extruders" rule instead.
+    if (stored_ids.empty())
+        this->set_blocks_all_extruders();
+    else
+        this->config.set_key_value(NON_TRAVERSABLE_EXTRUDERS_KEY, new ConfigOptionInts(std::move(stored_ids)));
+}
+
 bool ModelVolume::is_splittable() const
 {
     // the call mesh.is_splittable() is expensive, so cache the value to calculate it only once
@@ -2579,7 +2639,8 @@ std::vector<int> ModelVolume::get_extruders() const
     if (m_type == ModelVolumeType::INVALID
         || m_type == ModelVolumeType::NEGATIVE_VOLUME
         || m_type == ModelVolumeType::SUPPORT_BLOCKER
-        || m_type == ModelVolumeType::SUPPORT_ENFORCER)
+        || m_type == ModelVolumeType::SUPPORT_ENFORCER
+        || m_type == ModelVolumeType::NON_TRAVERSABLE_SPACE)
         return std::vector<int>();
 
     if (mmu_segmentation_facets.timestamp() != mmuseg_ts) {
@@ -2609,6 +2670,15 @@ std::vector<int> ModelVolume::get_extruders() const
 
 void ModelVolume::update_extruder_count(size_t extruder_count)
 {
+    if (this->is_non_traversable() && !this->blocks_all_extruders()) {
+        std::vector<unsigned int> blocked = this->blocked_extruders();
+        blocked.erase(std::remove_if(blocked.begin(), blocked.end(),
+                                     [extruder_count](unsigned int id) { return id >= extruder_count; }),
+                      blocked.end());
+        this->set_blocked_extruders(blocked);
+        return;
+    }
+
     std::vector<int> used_extruders = get_extruders();
     for (int extruder_id : used_extruders) {
         if (extruder_id > extruder_count) {
@@ -2631,6 +2701,21 @@ void ModelVolume::update_extruder_count(size_t extruder_count)
 
 void ModelVolume::update_extruder_count_when_delete_filament(size_t extruder_count, size_t filament_id, int replace_filament_id)
 {
+    if (this->is_non_traversable() && !this->blocks_all_extruders()) {
+        std::vector<unsigned int> remapped;
+        for (unsigned int id_zero_based : this->blocked_extruders()) {
+            int id = int(id_zero_based) + 1;
+            if (id == int(filament_id))
+                id = replace_filament_id;
+            else if (id > int(filament_id))
+                --id;
+            if (id > 0 && id <= int(extruder_count))
+                remapped.emplace_back(unsigned(id - 1));
+        }
+        this->set_blocked_extruders(remapped);
+        return;
+    }
+
     std::vector<int> used_extruders = get_extruders();
     for (int extruder_id : used_extruders) {
         if (extruder_id >= filament_id) {
@@ -2651,6 +2736,20 @@ void ModelVolume::update_extruder_count_when_delete_filament(size_t extruder_cou
 
 void ModelVolume::remap_extruder_ids(size_t extruder_count, const EnforcerBlockerStateMap &state_map)
 {
+    if (this->is_non_traversable() && !this->blocks_all_extruders()) {
+        std::vector<unsigned int> remapped;
+        for (unsigned int id_zero_based : this->blocked_extruders()) {
+            const size_t stored_id = size_t(id_zero_based) + 1;
+            if (stored_id >= state_map.size())
+                continue;
+            const int mapped_id = int(state_map[stored_id]);
+            if (mapped_id > 0 && mapped_id <= int(extruder_count))
+                remapped.emplace_back(unsigned(mapped_id - 1));
+        }
+        this->set_blocked_extruders(remapped);
+        return;
+    }
+
     std::vector<int> used_extruders = get_extruders();
     for (int extruder_id : used_extruders) {
         if (extruder_id <= 0)
@@ -2793,6 +2892,8 @@ ModelVolumeType ModelVolume::type_from_string(const std::string &s)
 		return ModelVolumeType::SUPPORT_ENFORCER;
     if (s == "support_blocker")
 		return ModelVolumeType::SUPPORT_BLOCKER;
+    if (s == "non_traversable_space")
+        return ModelVolumeType::NON_TRAVERSABLE_SPACE;
     //assert(s == "0");
     // Default value if invalud type string received.
 	return ModelVolumeType::MODEL_PART;
@@ -2807,6 +2908,7 @@ std::string ModelVolume::type_to_string(const ModelVolumeType t)
 	case ModelVolumeType::PARAMETER_MODIFIER: return "modifier_part";
 	case ModelVolumeType::SUPPORT_ENFORCER:   return "support_enforcer";
 	case ModelVolumeType::SUPPORT_BLOCKER:    return "support_blocker";
+    case ModelVolumeType::NON_TRAVERSABLE_SPACE: return "non_traversable_space";
     default:
         assert(false);
         return "normal_part";

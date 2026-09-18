@@ -345,6 +345,7 @@ enum class ModelVolumeType : int {
     PARAMETER_MODIFIER,
     SUPPORT_BLOCKER,
     SUPPORT_ENFORCER,
+    NON_TRAVERSABLE_SPACE,
 };
 
 // A printable object, possibly having multiple print volumes (each with its own set of parameters and materials),
@@ -909,6 +910,7 @@ public:
 	bool                is_support_enforcer()   const { return m_type == ModelVolumeType::SUPPORT_ENFORCER; }
 	bool                is_support_blocker()    const { return m_type == ModelVolumeType::SUPPORT_BLOCKER; }
 	bool                is_support_modifier()   const { return m_type == ModelVolumeType::SUPPORT_BLOCKER || m_type == ModelVolumeType::SUPPORT_ENFORCER; }
+    bool                is_non_traversable()   const { return m_type == ModelVolumeType::NON_TRAVERSABLE_SPACE; }
     bool                is_text()               const { return text_configuration.has_value(); }
     bool                is_svg() const { return emboss_shape.has_value()  && !text_configuration.has_value(); }
     bool                is_the_only_one_part() const; // behave like an object
@@ -920,6 +922,15 @@ public:
     // Extract the current extruder ID based on this ModelVolume's config and the parent ModelObject's config.
     // Extruder ID is only valid for FFF. Returns -1 for SLA or if the extruder ID is not applicable (support volumes).
     int                 extruder_id() const;
+
+    // Non-traversable spaces default to a live "all extruders" rule. Explicit
+    // selections are exposed as zero-based IDs, while the serialized ModelConfig
+    // stores one-based IDs to match the rest of the project format.
+    bool                        blocks_all_extruders() const;
+    bool                        blocks_extruder(unsigned int extruder_id) const;
+    std::vector<unsigned int>   blocked_extruders() const;
+    void                        set_blocks_all_extruders();
+    void                        set_blocked_extruders(const std::vector<unsigned int> &extruder_ids);
 
     bool                is_splittable() const;
 

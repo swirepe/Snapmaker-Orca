@@ -88,6 +88,24 @@ static inline void model_volume_list_copy_configs(ModelObject &model_object_dst,
     }
 }
 
+static bool model_volume_configs_changed(const ModelObject &old_object, const ModelObject &new_object, ModelVolumeType type)
+{
+    auto old_it = old_object.volumes.begin();
+    auto new_it = new_object.volumes.begin();
+    for (;;) {
+        while (old_it != old_object.volumes.end() && (*old_it)->type() != type)
+            ++old_it;
+        while (new_it != new_object.volumes.end() && (*new_it)->type() != type)
+            ++new_it;
+        if (old_it == old_object.volumes.end() || new_it == new_object.volumes.end())
+            return old_it != old_object.volumes.end() || new_it != new_object.volumes.end();
+        if ((*old_it)->id() != (*new_it)->id() || !(*old_it)->config.timestamp_matches((*new_it)->config))
+            return true;
+        ++old_it;
+        ++new_it;
+    }
+}
+
 static inline void layer_height_ranges_copy_configs(t_layer_config_ranges &lr_dst, const t_layer_config_ranges &lr_src)
 {
     assert(lr_dst.size() == lr_src.size());
@@ -1570,7 +1588,9 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
     PrintObjectStatusDB print_object_status_db(m_objects);
 
     // 3) Synchronize ModelObjects & PrintObjects.
-    const std::initializer_list<ModelVolumeType> solid_or_modifier_types { ModelVolumeType::MODEL_PART, ModelVolumeType::NEGATIVE_VOLUME, ModelVolumeType::PARAMETER_MODIFIER };
+    const std::initializer_list<ModelVolumeType> solid_or_modifier_types { ModelVolumeType::MODEL_PART, ModelVolumeType::NEGATIVE_VOLUME,
+                                                                           ModelVolumeType::PARAMETER_MODIFIER,
+                                                                           ModelVolumeType::NON_TRAVERSABLE_SPACE };
     for (size_t idx_model_object = 0; idx_model_object < model.objects.size(); ++ idx_model_object) {
         ModelObject       &model_object        = *m_model.objects[idx_model_object];
         ModelObjectStatus &model_object_status = const_cast<ModelObjectStatus&>(model_object_status_db.reuse(model_object));
@@ -1588,6 +1608,8 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                                           model_fuzzy_skin_data_changed(model_object, model_object_new);
         bool supports_differ            = model_volume_list_changed(model_object, model_object_new, ModelVolumeType::SUPPORT_BLOCKER) ||
                                           model_volume_list_changed(model_object, model_object_new, ModelVolumeType::SUPPORT_ENFORCER);
+        bool non_traversable_config_differ = model_volume_configs_changed(model_object, model_object_new,
+                                                                           ModelVolumeType::NON_TRAVERSABLE_SPACE);
         bool layer_height_ranges_differ = ! layer_height_ranges_equal(model_object.layer_config_ranges, model_object_new.layer_config_ranges, model_object_new.layer_height_profile.empty());
         bool model_origin_translation_differ = model_object.origin_translation != model_object_new.origin_translation;
         bool brim_points_differ = model_brim_points_data_changed(model_object, model_object_new);
@@ -1641,6 +1663,8 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                 model_object.brim_points = model_object_new.brim_points;
                 update_apply_status(this->invalidate_all_steps());
             }
+            if (non_traversable_config_differ)
+                update_apply_status(this->invalidate_step(psGCodeExport));
         }
         if (! solid_or_modifier_differ) {
             // Synchronize Object's config.
@@ -1661,6 +1685,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
             //FIXME What to do with m_material_id?
 			model_volume_list_copy_configs(model_object /* dst */, model_object_new /* src */, ModelVolumeType::MODEL_PART);
 			model_volume_list_copy_configs(model_object /* dst */, model_object_new /* src */, ModelVolumeType::PARAMETER_MODIFIER);
+            model_volume_list_copy_configs(model_object /* dst */, model_object_new /* src */, ModelVolumeType::NON_TRAVERSABLE_SPACE);
             layer_height_ranges_copy_configs(model_object.layer_config_ranges /* dst */, model_object_new.layer_config_ranges /* src */);
             // Copy the ModelObject name, input_file and instances. The instances will be compared against PrintObject instances in the next step.
             model_object.name       = model_object_new.name;

@@ -17,6 +17,7 @@
 #include "GCode/WipeTower.hpp"
 #include "GCode/SeamPlacer.hpp"
 #include "GCode/GCodeProcessor.hpp"
+#include "GCode/NonTraversableTravel.hpp"
 #include "EdgeGrid.hpp"
 #include "GCode/ThumbnailData.hpp"
 #include "libslic3r/ObjectID.hpp"
@@ -535,6 +536,7 @@ private:
     OozePrevention                      m_ooze_prevention;
     Wipe                                m_wipe;
     AvoidCrossingPerimeters             m_avoid_crossing_perimeters;
+    NonTraversableTravelPlanner         m_non_traversable_travel;
     RetractWhenCrossingPerimeters       m_retract_when_crossing_perimeters;
     bool                                m_enable_loop_clipping;
     //resonance avoidance

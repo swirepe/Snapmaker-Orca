@@ -77,6 +77,12 @@ public:
     std::string travel_to_xy(const Vec2d &point, const std::string &comment = std::string());
     std::string travel_to_xyz(const Vec3d &point, const std::string &comment = std::string(), bool force_z = false);
     std::string travel_to_z(double z, const std::string &comment = std::string(), bool force = false);
+    // Predict the height of the XY portion and the final height of a travel,
+    // then perform the Z portion separately. Hard 3D keep-outs use these to
+    // prevent a lazy or spiral lift from crossing a forbidden volume.
+    double      planned_travel_z(double nominal_z, bool force_z, bool will_travel_xy) const;
+    double      planned_destination_z(double nominal_z, bool force_z, bool will_travel_xy) const;
+    std::string travel_to_z_separately(double nominal_z, const std::string &comment, bool force_z, bool will_travel_xy);
     bool        will_move_z(double z) const;
     std::string extrude_to_xy(const Vec2d &point, double dE, const std::string &comment = std::string(), bool force_no_extrusion = false);
     //BBS: generate G2 or G3 extrude which moves by arc
