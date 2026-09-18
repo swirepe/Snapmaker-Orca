@@ -373,6 +373,8 @@ public:
     PA_Calibration_Dlg* m_pa_calib_dlg{ nullptr };
     Temp_Calibration_Dlg* m_temp_calib_dlg{ nullptr };
     Thermal_Pattern_Calibration_Dlg *m_thermal_pattern_calib_dlg { nullptr };
+    Pane_Calibration_Dlg* m_clear_filament_calib_dlg{ nullptr };
+    Pane_Calibration_Dlg* m_ironing_calib_dlg{ nullptr };
     MaxVolumetricSpeed_Test_Dlg* m_vol_test_dlg { nullptr };
     VFA_Test_Dlg* m_vfa_test_dlg { nullptr };
     Retraction_Test_Dlg* m_retraction_calib_dlg{ nullptr };

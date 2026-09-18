@@ -28,7 +28,8 @@ enum class PainterGizmoType {
     SEAM,
     MM_SEGMENTATION,
     FUZZY_SKIN,
-    THERMAL_PATTERN
+    THERMAL_PATTERN,
+    IRONING,
 };
 
 class TriangleSelectorGUI : public TriangleSelector {

@@ -55,6 +55,9 @@ std::vector<std::vector<ExPolygons>> fuzzy_skin_segmentation_by_painting(const P
 // Returns thermal surface pattern segmentation based on binary thermal painting.
 std::vector<std::vector<ExPolygons>> thermal_pattern_segmentation_by_painting(
     const PrintObject &print_object, const std::function<void()> &throw_on_cancel_callback);
+// Returns the unpainted/painted masks used to restrict ironing paths.
+std::vector<std::vector<ExPolygons>> ironing_segmentation_by_painting(const PrintObject &print_object,
+                                                                      const std::function<void()> &throw_on_cancel_callback);
 
 } // namespace Slic3r
 

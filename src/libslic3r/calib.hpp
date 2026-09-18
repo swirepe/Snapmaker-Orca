@@ -6,6 +6,7 @@
 #include "GCodeWriter.hpp"
 #include "PrintConfig.hpp"
 #include "BoundingBox.hpp"
+#include "PaneCalibration.hpp"
 
 namespace Slic3r {
 
@@ -25,7 +26,9 @@ enum class CalibMode : int {
     Calib_Retraction_tower,
     Calib_Input_shaping_freq,
     Calib_Input_shaping_damp,
-    Calib_Junction_Deviation
+    Calib_Junction_Deviation,
+    Calib_Clear_Filament,
+    Calib_Ironing
 };
 
 enum class CalibState { Start = 0, Preset, Calibration, CoarseSave, FineCalibration, Save, Finish };
@@ -42,6 +45,9 @@ struct Calib_Params
     double thermal_band_height = 5.0;
     std::vector<double> accelerations;
     std::vector<double> speeds;
+
+    PaneCalibrationConfig pane_config;
+    PaneCalibrationPlan   pane_plan;
 
     CalibMode mode;
 };

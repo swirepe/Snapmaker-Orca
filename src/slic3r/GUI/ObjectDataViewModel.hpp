@@ -63,6 +63,7 @@ enum class InfoItemType
     MmSegmentation,
     FuzzySkin,
     ThermalPattern,
+    Ironing,
     //Sinking
     CutConnectors,
 };

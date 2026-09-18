@@ -2492,11 +2492,12 @@ void GLCanvas3D::toggle_model_objects_visibility(bool visible, const ModelObject
                 } else {
                     const GLGizmosManager& gm = get_gizmos_manager();
                     auto gizmo_type = gm.get_current_type();
-                    if (  (gizmo_type == GLGizmosManager::FdmSupports
+                    if ((gizmo_type == GLGizmosManager::FdmSupports
                         || gizmo_type == GLGizmosManager::Seam
                         || gizmo_type == GLGizmosManager::Cut
                         || gizmo_type == GLGizmosManager::FuzzySkin
-                        || gizmo_type == GLGizmosManager::ThermalPattern)
+                        || gizmo_type == GLGizmosManager::ThermalPattern
+                        || gizmo_type == GLGizmosManager::Ironing)
                         && !vol->is_modifier) {
                         vol->force_neutral_color = true;
                     }
@@ -2998,7 +2999,7 @@ void GLCanvas3D::render(bool only_init)
     }
     else if ((gizmo_type == GLGizmosManager::FdmSupports) || (gizmo_type == GLGizmosManager::Seam) ||
              (gizmo_type == GLGizmosManager::MmSegmentation) || (gizmo_type == GLGizmosManager::FuzzySkin) ||
-             (gizmo_type == GLGizmosManager::ThermalPattern))
+             (gizmo_type == GLGizmosManager::ThermalPattern) || (gizmo_type == GLGizmosManager::Ironing))
         no_partplate = true;
     else if (gizmo_type == GLGizmosManager::BrimEars && !camera.is_looking_downward())
         show_grid = false;
@@ -5345,7 +5346,8 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                     && m_gizmos.get_current_type() != GLGizmosManager::Cut
                     && m_gizmos.get_current_type() != GLGizmosManager::MmSegmentation
                     && m_gizmos.get_current_type() != GLGizmosManager::FuzzySkin
-                    && m_gizmos.get_current_type() != GLGizmosManager::ThermalPattern) {
+                    && m_gizmos.get_current_type() != GLGizmosManager::ThermalPattern
+                    && m_gizmos.get_current_type() != GLGizmosManager::Ironing) {
                     m_rectangle_selection.start_dragging(m_mouse.position, evt.ShiftDown() ? GLSelectionRectangle::Select : GLSelectionRectangle::Deselect);
                     m_dirty = true;
                 }
@@ -5498,7 +5500,8 @@ void GLCanvas3D::on_mouse(wxMouseEvent& evt)
                 if (this->m_canvas_type == ECanvasType::CanvasAssembleView || m_gizmos.get_current_type() == GLGizmosManager::FdmSupports ||
                     m_gizmos.get_current_type() == GLGizmosManager::Seam || m_gizmos.get_current_type() == GLGizmosManager::MmSegmentation ||
                     m_gizmos.get_current_type() == GLGizmosManager::FuzzySkin ||
-                    m_gizmos.get_current_type() == GLGizmosManager::ThermalPattern) {
+                    m_gizmos.get_current_type() == GLGizmosManager::ThermalPattern ||
+                    m_gizmos.get_current_type() == GLGizmosManager::Ironing) {
                     Vec3d rotate_target = Vec3d::Zero();
                     if (!m_selection.is_empty())
                         rotate_target = m_selection.get_bounding_box().center();
@@ -8515,6 +8518,7 @@ void GLCanvas3D::_render_bed(const Transform3d& view_matrix, const Transform3d& 
           && m_gizmos.get_current_type() != GLGizmosManager::MmSegmentation
           && m_gizmos.get_current_type() != GLGizmosManager::FuzzySkin
           && m_gizmos.get_current_type() != GLGizmosManager::ThermalPattern);
+          && m_gizmos.get_current_type() != GLGizmosManager::Ironing);
     */
     //bool show_texture = true;
     //BBS set axes mode

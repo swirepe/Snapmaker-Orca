@@ -199,7 +199,8 @@ static t_config_enum_values s_keys_map_IroningType {
     { "no ironing",     int(IroningType::NoIroning) },
     { "top",            int(IroningType::TopSurfaces) },
     { "topmost",        int(IroningType::TopmostOnly) },
-    { "solid",          int(IroningType::AllSolid) }
+    { "solid",          int(IroningType::AllSolid) },
+    { "alternate",      int(IroningType::EveryOtherLayer) }
 };
 CONFIG_OPTION_ENUM_DEFINE_STATIC_MAPS(IroningType)
 
@@ -3716,10 +3717,12 @@ void PrintConfigDef::init_fff_params()
     def->enum_values.push_back("top");
     def->enum_values.push_back("topmost");
     def->enum_values.push_back("solid");
+    def->enum_values.push_back("alternate");
     def->enum_labels.push_back(L("No ironing"));
     def->enum_labels.push_back(L("Top surfaces"));
     def->enum_labels.push_back(L("Topmost surface"));
-    def->enum_labels.push_back(L("All solid layer"));
+    def->enum_labels.push_back(L("Every layer"));
+    def->enum_labels.push_back(L("Every other layer"));
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
 
@@ -3785,6 +3788,57 @@ void PrintConfigDef::init_fff_params()
     def->max      = 359;
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(-1));
+
+    def           = this->add("nozzle_temperature_override", coInt);
+    def->label    = L("Nozzle temperature override");
+    def->tooltip  = L("Overrides the active filament nozzle temperature for this region. A value of 0 uses the filament temperature. "
+                      "Small or interleaved regions may finish before the nozzle reaches the requested temperature.");
+    def->sidetext = "°C";
+    def->min      = 0;
+    def->max      = 500;
+    def->category = L("Quality");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(0));
+
+    def           = this->add("fan_speed_override", coInt);
+    def->label    = L("Part cooling fan override");
+    def->tooltip  = L("Overrides the normal part cooling fan for infill and surfaces in this region. -1 uses the filament cooling settings.");
+    def->sidetext = "%";
+    def->min      = -1;
+    def->max      = 100;
+    def->category = L("Quality");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(-1));
+
+    def           = this->add("wall_fan_speed_override", coInt);
+    def->label    = L("Wall fan override");
+    def->tooltip  = L("Overrides the part cooling fan while printing inner and outer walls. -1 uses the normal fan speed for this region.");
+    def->sidetext = "%";
+    def->min      = -1;
+    def->max      = 100;
+    def->category = L("Quality");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(-1));
+
+    def           = this->add("ironing_fan_speed_override", coInt);
+    def->label    = L("Ironing fan override");
+    def->tooltip  = L("Overrides the part cooling fan while ironing this region. -1 uses the filament ironing fan or normal regional fan speed.");
+    def->sidetext = "%";
+    def->min      = -1;
+    def->max      = 100;
+    def->category = L("Quality");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(-1));
+
+    def           = this->add("auxiliary_fan_speed_override", coInt);
+    def->label    = L("Auxiliary fan override");
+    def->tooltip  = L("Overrides the auxiliary part cooling fan for this region. -1 uses the filament setting. This has no effect on printers without an auxiliary fan.");
+    def->sidetext = "%";
+    def->min      = -1;
+    def->max      = 100;
+    def->category = L("Quality");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionInt(-1));
 
     def = this->add("layer_change_gcode", coString);
     def->label = L("Layer change G-code");

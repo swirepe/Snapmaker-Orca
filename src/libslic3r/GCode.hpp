@@ -400,6 +400,8 @@ private:
     std::string     extrude_loop(ExtrusionLoop loop, std::string description, double speed = -1., const ExtrusionEntitiesPtr& region_perimeters = ExtrusionEntitiesPtr(), const Point* start_point = nullptr);
     std::string     extrude_multi_path(ExtrusionMultiPath multipath, std::string description = "", double speed = -1.);
     std::string     extrude_path(ExtrusionPath path, std::string description = "", double speed = -1.);
+    std::string     set_region_process_overrides(ExtrusionRole role);
+    void            reset_region_process_overrides(bool wait_for_temperature = false);
     
     // Orca: Adaptive PA variables
     // Used for adaptive PA when extruding paths with multiple, varying flow segments.
@@ -551,6 +553,12 @@ private:
     std::string _encode_label_ids_to_base64(std::vector<size_t> ids);
     // ORCA: Add support for role based fan speed control
     std::array<bool, ExtrusionRole::erCount> m_is_role_based_fan_on;
+    int                                 m_last_region_temperature {-1};
+    int                                 m_last_region_temperature_extruder {-1};
+    int                                 m_last_region_fan_speed {-2};
+    int                                 m_last_region_auxiliary_fan_speed {-2};
+    bool                                m_region_temperature_initialized {false};
+    bool                                m_wait_for_region_temperature {false};
     // Markers for the Pressure Equalizer to recognize the extrusion type.
     // The Pressure Equalizer removes the markers from the final G-code.
     bool                                m_enable_extrusion_role_markers;

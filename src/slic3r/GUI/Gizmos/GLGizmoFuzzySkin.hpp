@@ -10,7 +10,8 @@ namespace Slic3r::GUI {
 class GLGizmoFuzzySkin : public GLGizmoPainterBase
 {
 public:
-    GLGizmoFuzzySkin(GLCanvas3D& parent, const std::string& icon_filename, unsigned int sprite_id, bool thermal_pattern = false);
+    GLGizmoFuzzySkin(GLCanvas3D &parent, const std::string &icon_filename, unsigned int sprite_id,
+                     bool thermal_pattern = false, bool ironing = false);
 
     void render_painter_gizmo() override;
 
@@ -46,6 +47,7 @@ private:
     // etc. When language changes, GUI is recreated, and this class constructed again, so the change takes effect.
     std::map<std::string, wxString> m_desc;
     bool                            m_thermal_pattern { false };
+    bool                            m_ironing { false };
 };
 
 } // namespace Slic3r::GUI

@@ -83,6 +83,8 @@ static inline void model_volume_list_copy_configs(ModelObject &model_object_dst,
         mv_dst.fuzzy_skin_facets.assign(mv_src.fuzzy_skin_facets);
         assert(mv_dst.thermal_pattern_facets.id() == mv_src.thermal_pattern_facets.id());
         mv_dst.thermal_pattern_facets.assign(mv_src.thermal_pattern_facets);
+        assert(mv_dst.ironing_facets.id() == mv_src.ironing_facets.id());
+        mv_dst.ironing_facets.assign(mv_src.ironing_facets);
         //FIXME what to do with the materials?
         // mv_dst.m_material_id = mv_src.m_material_id;
         ++ i_src;
@@ -1654,6 +1656,7 @@ Print::ApplyStatus Print::apply(const Model &model, DynamicPrintConfig new_full_
                                           (model_object_new.is_mm_painted() && num_extruders_changed) ||
                                           model_fuzzy_skin_data_changed(model_object, model_object_new) ||
                                           model_thermal_pattern_data_changed(model_object, model_object_new);
+                                          model_ironing_data_changed(model_object, model_object_new);
         bool supports_differ            = model_volume_list_changed(model_object, model_object_new, ModelVolumeType::SUPPORT_BLOCKER) ||
                                           model_volume_list_changed(model_object, model_object_new, ModelVolumeType::SUPPORT_ENFORCER);
         bool layer_height_ranges_differ = ! layer_height_ranges_equal(model_object.layer_config_ranges, model_object_new.layer_config_ranges, model_object_new.layer_height_profile.empty());

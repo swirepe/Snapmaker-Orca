@@ -1278,6 +1278,7 @@ void NotificationManager::UpdatedItemsInfoNotification::add_type(InfoItemType ty
 		case InfoItemType::CutConnectors:       text += format(_L_PLURAL("%1$d object was loaded as a part of cut object.",		"%1$d objects were loaded as parts of cut object.", (*it).second), (*it).second) + "\n"; break;
 		case InfoItemType::FuzzySkin:           text += format(_L_PLURAL("%1$d object was loaded with fuzzy skin painting.",    "%1$d objects were loaded with fuzzy skin painting.",   (*it).second), (*it).second) + "\n"; break;
 		case InfoItemType::ThermalPattern:      text += format(_L_PLURAL("%1$d object was loaded with thermal surface painting.", "%1$d objects were loaded with thermal surface painting.", (*it).second), (*it).second) + "\n"; break;
+		case InfoItemType::Ironing:             text += format(_L_PLURAL("%1$d object was loaded with ironing painting.",      "%1$d objects were loaded with ironing painting.",     (*it).second), (*it).second) + "\n"; break;
 		default: BOOST_LOG_TRIVIAL(error) << "Unknown InfoItemType: " << (*it).second; break;
 		}
 	}

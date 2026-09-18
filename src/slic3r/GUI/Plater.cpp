@@ -13990,6 +13990,7 @@ bool Plater::priv::replace_volume_with_stl(int object_idx, int volume_idx, const
     new_volume->mmu_segmentation_facets.assign(old_volume->mmu_segmentation_facets);
     new_volume->fuzzy_skin_facets.assign(old_volume->fuzzy_skin_facets);
     new_volume->thermal_pattern_facets.assign(old_volume->thermal_pattern_facets);
+    new_volume->ironing_facets.assign(old_volume->ironing_facets);
     std::swap(old_model_object->volumes[volume_idx], old_model_object->volumes.back());
     old_model_object->delete_volume(old_model_object->volumes.size() - 1);
     if (!sinking)
@@ -19046,6 +19047,320 @@ void Plater::calib_junction_deviation(const Calib_Params& params)
     p->background_process.fff_print()->set_calib_params(params);
 }
 
+void Plater::calib_panes(const PaneCalibrationConfig &config)
+{
+    PaneCalibrationPlan plan;
+    try {
+        plan = build_pane_calibration_plan(config);
+    } catch (const std::exception &error) {
+        MessageDialog(this, from_u8(error.what()), _L("Invalid calibration"), wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+
+    const wxString project_name = config.tool == PaneCalibrationTool::ClearFilament ?
+        _L("Clear filament calibration") : _L("Ironing calibration");
+    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+    const auto *printable_area = full_config.opt<ConfigOptionPoints>("printable_area");
+    const auto *nozzles = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
+    if (printable_area == nullptr || printable_area->values.size() < 3 || nozzles == nullptr || nozzles->values.empty()) {
+        MessageDialog(this, _L("The active printer does not define a usable build plate or nozzle."), project_name,
+                      wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+    if (config.pane_extruder < 1 || size_t(config.pane_extruder) > nozzles->values.size() ||
+        config.label_extruder < 1 || size_t(config.label_extruder) > nozzles->values.size()) {
+        MessageDialog(this, _L("The selected pane or label extruder is not available on the active printer."), project_name,
+                      wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+
+    const double nozzle = nozzles->values[size_t(config.pane_extruder - 1)];
+    for (const PaneCalibrationFactorSetting &factor : config.factors) {
+        if (!factor.enabled)
+            continue;
+        if (factor.factor == PaneCalibrationFactor::LayerHeight &&
+            (factor.minimum <= 0. || factor.maximum > nozzle || factor.maximum > config.pane_height)) {
+            MessageDialog(this, _L("Layer-height levels must be positive and no greater than the active nozzle diameter or pane height."),
+                          project_name, wxICON_WARNING | wxOK).ShowModal();
+            return;
+        }
+        if (factor.factor == PaneCalibrationFactor::LineWidth &&
+            (factor.minimum < 0.25 * nozzle || factor.maximum > 2.5 * nozzle)) {
+            MessageDialog(this, _L("Line-width levels must be between 25% and 250% of the active nozzle diameter."), project_name,
+                          wxICON_WARNING | wxOK).ShowModal();
+            return;
+        }
+    }
+
+    const double first_layer_height = std::max(0.01, full_config.opt_float("initial_layer_print_height"));
+    if (config.pane_height + EPSILON < first_layer_height) {
+        MessageDialog(this, _L("Pane height must be at least the active first-layer height."), project_name,
+                      wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+    try {
+        (void) make_pane_calibration_body(config, first_layer_height);
+    } catch (const std::exception &error) {
+        MessageDialog(this, from_u8(error.what()), project_name, wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+
+    const double ear_extension = config.mouse_ears ? 0.55 * 0.5 * config.mouse_ear_diameter : 0.;
+    const double footprint_width = config.pane_width + 2. * ear_extension;
+    const double footprint_depth = config.pane_depth + 2. * ear_extension;
+    const BoundingBoxf bed_extent = get_extents(printable_area->values);
+    const Polygon bed_polygon = Polygon::new_scale(printable_area->values);
+    const auto *bed_exclude_area = full_config.opt<ConfigOptionPoints>("bed_exclude_area");
+    const Polygon bed_exclusion = bed_exclude_area != nullptr && bed_exclude_area->values.size() >= 3 ?
+        Polygon::new_scale(bed_exclude_area->values) : Polygon {};
+    const double margin = 3.;
+
+    size_t selected_columns = 0;
+    size_t selected_rows = 0;
+    double best_score = std::numeric_limits<double>::max();
+    for (size_t columns = 1; columns <= plan.rows.size(); ++columns) {
+        const size_t rows = (plan.rows.size() + columns - 1) / columns;
+        const double width = double(columns) * footprint_width + double(columns - 1) * config.pane_gap;
+        const double depth = double(rows) * footprint_depth + double(rows - 1) * config.pane_gap;
+        if (width + 2. * margin > bed_extent.size().x() || depth + 2. * margin > bed_extent.size().y())
+            continue;
+        const Vec2d candidate_min = bed_extent.center() - 0.5 * Vec2d(width, depth);
+        bool fits_plate = true;
+        for (size_t row_index = 0; fits_plate && row_index < plan.rows.size(); ++row_index) {
+            const size_t grid_row = row_index / columns;
+            const size_t grid_column = row_index % columns;
+            const double x = candidate_min.x() + 0.5 * footprint_width +
+                             double(grid_column) * (footprint_width + config.pane_gap);
+            const double y = candidate_min.y() + depth - 0.5 * footprint_depth -
+                             double(grid_row) * (footprint_depth + config.pane_gap);
+            const BoundingBox pane_box(Point::new_scale(x - 0.5 * footprint_width, y - 0.5 * footprint_depth),
+                                       Point::new_scale(x + 0.5 * footprint_width, y + 0.5 * footprint_depth));
+            for (const Point &corner : pane_box.polygon().points)
+                if (!bed_polygon.contains(corner)) {
+                    fits_plate = false;
+                    break;
+                }
+            if (fits_plate && bed_exclusion.is_valid() && !intersection(pane_box.polygon(), bed_exclusion).empty())
+                fits_plate = false;
+        }
+        if (!fits_plate)
+            continue;
+        const double score = std::abs(width / std::max(depth, 0.01) - bed_extent.size().x() / bed_extent.size().y());
+        if (score < best_score) {
+            selected_columns = columns;
+            selected_rows = rows;
+            best_score = score;
+        }
+    }
+    if (selected_columns == 0) {
+        MessageDialog(this, _L("The calibration panes do not fit on the active build plate. Reduce their size, gap, or count."),
+                      project_name, wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+
+    size_t maximum_label_characters = 0;
+    if (config.labels) {
+        const double label_character_capacity = std::floor(
+            (config.pane_width - 2. * config.label_glyph_height / 7.) / (6. * config.label_glyph_height / 7.));
+        if (label_character_capacity < 3.) {
+            MessageDialog(this, _L("The label does not fit the pane. Increase pane width or reduce glyph height."), project_name,
+                          wxICON_WARNING | wxOK).ShowModal();
+            return;
+        }
+        maximum_label_characters = size_t(label_character_capacity);
+        try {
+            for (const PaneCalibrationRow &row : plan.rows) {
+                const std::vector<std::string> lines = pane_calibration_label_lines(
+                    row, config.taguchi_levels, maximum_label_characters);
+                (void) make_pane_calibration_label(lines, config.label_glyph_height, config.label_relief,
+                                                   config.pane_width, config.pane_depth);
+            }
+        } catch (const std::exception &error) {
+            MessageDialog(this, from_u8(error.what()), project_name, wxICON_WARNING | wxOK).ShowModal();
+            return;
+        }
+    }
+
+    if (new_project(false, false, project_name) == wxID_CANCEL)
+        return;
+    wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+
+    DynamicPrintConfig &print_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    print_config.set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+    print_config.set_key_value("print_order", new ConfigOptionEnum<PrintOrder>(PrintOrder::AsObjectList));
+    if (config.labels && config.pane_extruder != config.label_extruder)
+        print_config.set_key_value("enable_prime_tower", new ConfigOptionBool(false));
+
+    const double grid_width = double(selected_columns) * footprint_width + double(selected_columns - 1) * config.pane_gap;
+    const double grid_depth = double(selected_rows) * footprint_depth + double(selected_rows - 1) * config.pane_gap;
+    const Vec2d grid_min = bed_extent.center() - 0.5 * Vec2d(grid_width, grid_depth);
+    const Vec3d plate_origin = get_partplate_list().get_curr_plate()->get_origin();
+    const unsigned experiment_levels = config.design == PaneCalibrationDesign::Taguchi ? config.taguchi_levels :
+        [&config]() {
+            for (const auto &factor : config.factors)
+                if (factor.enabled)
+                    return factor.levels;
+            return 4u;
+        }();
+
+    auto set_speed = [](ModelConfig &target, const char *key, double value) {
+        target.set_key_value(key, new ConfigOptionFloats {value});
+    };
+    auto apply_row = [&](ModelConfig &target, const PaneCalibrationRow &row, bool label) {
+        for (const PaneCalibrationValue &entry : row) {
+            const double value = entry.value;
+            switch (entry.factor) {
+            case PaneCalibrationFactor::NozzleTemperature:
+                target.set_key_value("nozzle_temperature_override", new ConfigOptionInt(int(std::lround(value))));
+                break;
+            case PaneCalibrationFactor::PrintSpeed:
+                if (!label) {
+                    set_speed(target, "outer_wall_speed", value);
+                    set_speed(target, "inner_wall_speed", value);
+                    set_speed(target, "internal_solid_infill_speed", value);
+                    set_speed(target, "top_surface_speed", value);
+                }
+                break;
+            case PaneCalibrationFactor::FlowRatio:
+                if (!label)
+                    target.set_key_value("print_flow_ratio", new ConfigOptionFloat(value));
+                break;
+            case PaneCalibrationFactor::LayerHeight: break;
+            case PaneCalibrationFactor::MaxFanSpeed:
+                target.set_key_value("fan_speed_override", new ConfigOptionInt(int(std::lround(value))));
+                break;
+            case PaneCalibrationFactor::WallFanSpeed:
+                target.set_key_value("wall_fan_speed_override", new ConfigOptionInt(int(std::lround(value))));
+                break;
+            case PaneCalibrationFactor::IroningFanSpeed:
+                target.set_key_value("ironing_fan_speed_override", new ConfigOptionInt(int(std::lround(value))));
+                break;
+            case PaneCalibrationFactor::AuxiliaryFanSpeed:
+                target.set_key_value("auxiliary_fan_speed_override", new ConfigOptionInt(int(std::lround(value))));
+                break;
+            case PaneCalibrationFactor::IroningType:
+                if (!label) {
+                    IroningType type = IroningType::NoIroning;
+                    if (entry.levels == 2)
+                        type = entry.level == 0 ? IroningType::NoIroning : IroningType::AllSolid;
+                    else if (entry.levels == 3)
+                        type = entry.level == 0 ? IroningType::NoIroning :
+                               entry.level == 1 ? IroningType::TopSurfaces : IroningType::AllSolid;
+                    else
+                        type = entry.level == 0 ? IroningType::NoIroning :
+                               entry.level == 1 ? IroningType::TopSurfaces :
+                               entry.level == 2 ? IroningType::EveryOtherLayer : IroningType::AllSolid;
+                    target.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(type));
+                }
+                break;
+            case PaneCalibrationFactor::IroningFlow:
+                if (!label)
+                    target.set_key_value("ironing_flow", new ConfigOptionPercent(value));
+                break;
+            case PaneCalibrationFactor::IroningAngle:
+                if (!label) {
+                    static constexpr double angles[4] = {0., 45., 90., 135.};
+                    const unsigned angle_index = entry.levels == 2 ? entry.level * 2 : entry.level;
+                    target.set_key_value("ironing_angle", new ConfigOptionFloat(angles[std::min(angle_index, 3u)]));
+                }
+                break;
+            case PaneCalibrationFactor::LineWidth:
+                if (!label)
+                    for (const char *key : {"outer_wall_line_width", "inner_wall_line_width", "internal_solid_infill_line_width",
+                                            "top_surface_line_width"})
+                        target.set_key_value(key, new ConfigOptionFloatOrPercent(value, false));
+                break;
+            case PaneCalibrationFactor::IroningSpeed:
+                if (!label)
+                    set_speed(target, "ironing_speed", value);
+                break;
+            case PaneCalibrationFactor::IroningSpacing:
+                if (!label)
+                    target.set_key_value("ironing_spacing", new ConfigOptionFloat(value));
+                break;
+            }
+        }
+    };
+
+    std::vector<size_t> object_indices;
+    object_indices.reserve(plan.rows.size());
+    try {
+        for (size_t row_index = 0; row_index < plan.rows.size(); ++row_index) {
+            const size_t grid_row = row_index / selected_columns;
+            const size_t grid_column = row_index % selected_columns;
+            const double x = grid_min.x() + 0.5 * footprint_width + double(grid_column) * (footprint_width + config.pane_gap);
+            const double y = grid_min.y() + grid_depth - 0.5 * footprint_depth - double(grid_row) * (footprint_depth + config.pane_gap);
+            for (double corner_x : {x - 0.5 * footprint_width, x + 0.5 * footprint_width})
+                for (double corner_y : {y - 0.5 * footprint_depth, y + 0.5 * footprint_depth})
+                    if (!bed_polygon.contains(Point::new_scale(corner_x, corner_y)))
+                        throw std::invalid_argument("The centered pane grid does not fit the active build-plate shape");
+
+            ModelObject *object = model().add_object();
+            object->name = (config.tool == PaneCalibrationTool::ClearFilament ? "Clear pane " : "Ironing pane ") +
+                           std::to_string(row_index + 1);
+            ModelVolume *pane = object->add_volume(make_pane_calibration_body(config, first_layer_height),
+                                                    ModelVolumeType::MODEL_PART, false);
+            pane->name = "Calibration pane";
+            pane->config.set_key_value("extruder", new ConfigOptionInt(config.pane_extruder));
+
+            ModelConfig &object_config = object->config;
+            object_config.set_key_value("wall_loops", new ConfigOptionInt(1));
+            object_config.set_key_value("sparse_infill_density", new ConfigOptionPercent(100));
+            object_config.set_key_value("sparse_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipAlignedRectilinear));
+            object_config.set_key_value("internal_solid_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipAlignedRectilinear));
+            object_config.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipAlignedRectilinear));
+            object_config.set_key_value("bottom_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipAlignedRectilinear));
+            object_config.set_key_value("infill_direction", new ConfigOptionFloat(0.));
+            object_config.set_key_value("solid_infill_direction", new ConfigOptionFloat(0.));
+            object_config.set_key_value("align_infill_direction_to_model", new ConfigOptionBool(true));
+            object_config.set_key_value("top_shell_layers", new ConfigOptionInt(3));
+            object_config.set_key_value("bottom_shell_layers", new ConfigOptionInt(3));
+            object_config.set_key_value("precise_z_height", new ConfigOptionBool(true));
+            object_config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+            object_config.set_key_value("extruder", new ConfigOptionInt(config.pane_extruder));
+            for (const PaneCalibrationValue &entry : plan.rows[row_index])
+                if (entry.factor == PaneCalibrationFactor::LayerHeight)
+                    object_config.set_key_value("layer_height", new ConfigOptionFloat(entry.value));
+            apply_row(pane->config, plan.rows[row_index], false);
+
+            if (config.labels) {
+                const std::vector<std::string> lines = pane_calibration_label_lines(
+                    plan.rows[row_index], experiment_levels, maximum_label_characters);
+                ModelVolume *label = object->add_volume(make_pane_calibration_label(
+                    lines, config.label_glyph_height, config.label_relief, config.pane_width, config.pane_depth),
+                    ModelVolumeType::MODEL_PART, false);
+                label->name = "Calibration label";
+                label->set_offset(Vec3d(0., 0., config.pane_height));
+                label->config.set_key_value("extruder", new ConfigOptionInt(config.label_extruder));
+                label->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+                if (config.pane_extruder == config.label_extruder)
+                    apply_row(label->config, plan.rows[row_index], true);
+            }
+
+            ModelInstance *instance = object->add_instance();
+            instance->set_offset(plate_origin + Vec3d(x, y, 0.));
+            object->invalidate_bounding_box();
+            const size_t object_index = model().objects.size() - 1;
+            object_indices.push_back(object_index);
+            get_partplate_list().add_to_plate(object_index, 0, get_partplate_list().get_curr_plate_index());
+            sidebar().obj_list()->add_object_to_list(object_index);
+        }
+    } catch (const std::exception &error) {
+        MessageDialog(this, from_u8(error.what()), _L("Cannot generate calibration panes"), wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+
+    changed_objects(object_indices);
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+
+    Calib_Params params;
+    params.mode = config.tool == PaneCalibrationTool::ClearFilament ? CalibMode::Calib_Clear_Filament : CalibMode::Calib_Ironing;
+    params.pane_config = config;
+    params.pane_plan = std::move(plan);
+    p->background_process.fff_print()->set_calib_params(params);
+}
+
 BuildVolume_Type Plater::get_build_volume_type() const { return p->bed.get_build_volume_type(); }
 
 void Plater::import_zip_archive()
@@ -23542,11 +23857,13 @@ void Plater::clear_before_change_mesh(int obj_idx)
     for (ModelVolume* mv : mo->volumes) {
         paint_removed |= !mv->supported_facets.empty() || !mv->seam_facets.empty() || !mv->mmu_segmentation_facets.empty() ||
                          !mv->fuzzy_skin_facets.empty() || !mv->thermal_pattern_facets.empty();
+                         !mv->fuzzy_skin_facets.empty() || !mv->ironing_facets.empty();
         mv->supported_facets.reset();
         mv->seam_facets.reset();
         mv->mmu_segmentation_facets.reset();
         mv->fuzzy_skin_facets.reset();
         mv->thermal_pattern_facets.reset();
+        mv->ironing_facets.reset();
     }
     if (paint_removed) {
         // snapshot_time is captured by copy so the lambda knows where to undo/redo to.

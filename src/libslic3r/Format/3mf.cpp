@@ -114,6 +114,7 @@ static constexpr const char* CUSTOM_SEAM_ATTR = "slic3rpe:custom_seam";
 static constexpr const char* MMU_SEGMENTATION_ATTR = "slic3rpe:mmu_segmentation";
 static constexpr const char* FUZZY_SKIN_ATTR = "slic3rpe:fuzzy_skin";
 static constexpr const char* THERMAL_PATTERN_ATTR = "slic3rpe:thermal_pattern";
+static constexpr const char* IRONING_ATTR = "slic3rpe:ironing";
 
 static constexpr const char* KEY_ATTR = "key";
 static constexpr const char* VALUE_ATTR = "value";
@@ -421,6 +422,7 @@ ModelVolumeType type_from_string(const std::string &s)
             std::vector<std::string> mmu_segmentation;
             std::vector<std::string> fuzzy_skin;
             std::vector<std::string> thermal_pattern;
+            std::vector<std::string> ironing;
 
             bool empty() { return vertices.empty() || triangles.empty(); }
 
@@ -432,6 +434,7 @@ ModelVolumeType type_from_string(const std::string &s)
                 mmu_segmentation.clear();
                 fuzzy_skin.clear();
                 thermal_pattern.clear();
+                ironing.clear();
             }
         };
 
@@ -1747,6 +1750,7 @@ ModelVolumeType type_from_string(const std::string &s)
         m_curr_object.geometry.custom_seam.push_back(get_attribute_value_string(attributes, num_attributes, CUSTOM_SEAM_ATTR));
         m_curr_object.geometry.fuzzy_skin.push_back(get_attribute_value_string(attributes, num_attributes, FUZZY_SKIN_ATTR));
         m_curr_object.geometry.thermal_pattern.push_back(get_attribute_value_string(attributes, num_attributes, THERMAL_PATTERN_ATTR));
+        m_curr_object.geometry.ironing.push_back(get_attribute_value_string(attributes, num_attributes, IRONING_ATTR));
         m_curr_object.geometry.mmu_segmentation.push_back(get_attribute_value_string(attributes, num_attributes, MMU_SEGMENTATION_ATTR));
         return true;
     }
@@ -2166,6 +2170,7 @@ ModelVolumeType type_from_string(const std::string &s)
             volume->mmu_segmentation_facets.reserve(triangles_count);
             volume->fuzzy_skin_facets.reserve(triangles_count);
             volume->thermal_pattern_facets.reserve(triangles_count);
+            volume->ironing_facets.reserve(triangles_count);
             for (size_t i=0; i<triangles_count; ++i) {
                 size_t index = volume_data.first_triangle_id + i;
                 assert(index < geometry.custom_supports.size());
@@ -2183,12 +2188,15 @@ ModelVolumeType type_from_string(const std::string &s)
                 	volume->fuzzy_skin_facets.set_triangle_from_string(i, geometry.fuzzy_skin[index]);
                 if (! geometry.thermal_pattern[index].empty())
                     volume->thermal_pattern_facets.set_triangle_from_string(i, geometry.thermal_pattern[index]);
+                if (!geometry.ironing[index].empty())
+                    volume->ironing_facets.set_triangle_from_string(i, geometry.ironing[index]);
             }
             volume->supported_facets.shrink_to_fit();
             volume->seam_facets.shrink_to_fit();
             volume->mmu_segmentation_facets.shrink_to_fit();
             volume->fuzzy_skin_facets.shrink_to_fit();
             volume->thermal_pattern_facets.shrink_to_fit();
+            volume->ironing_facets.shrink_to_fit();
 
             // apply the remaining volume's metadata
             for (const Metadata& metadata : volume_data.metadata) {
@@ -2857,6 +2865,15 @@ ModelVolumeType type_from_string(const std::string &s)
                     output_buffer += THERMAL_PATTERN_ATTR;
                     output_buffer += "=\"";
                     output_buffer += thermal_pattern_data_string;
+                    output_buffer += "\"";
+                }
+
+                std::string ironing_data_string = volume->ironing_facets.get_triangle_as_string(i);
+                if (!ironing_data_string.empty()) {
+                    output_buffer += " ";
+                    output_buffer += IRONING_ATTR;
+                    output_buffer += "=\"";
+                    output_buffer += ironing_data_string;
                     output_buffer += "\"";
                 }
 

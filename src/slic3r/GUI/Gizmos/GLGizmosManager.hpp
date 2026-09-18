@@ -84,6 +84,7 @@ public:
         Seam,
         FuzzySkin,
         ThermalPattern,
+        Ironing,
         MmSegmentation,
         Emboss,
         Svg,

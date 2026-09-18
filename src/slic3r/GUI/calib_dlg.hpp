@@ -14,6 +14,10 @@
 #include "GUI_App.hpp"
 #include "wx/hyperlink.h"
 #include <wx/radiobox.h>
+#include <wx/choice.h>
+#include <wx/checkbox.h>
+#include <wx/scrolwin.h>
+#include <wx/spinctrl.h>
 #include "libslic3r/calib.hpp"
 
 namespace Slic3r { namespace GUI {
@@ -195,6 +199,44 @@ protected:
     TextInput* m_tiJDStart;
     TextInput* m_tiJDEnd;
     Plater* m_plater;
+};
+
+class Pane_Calibration_Dlg : public DPIDialog
+{
+public:
+    Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plater *plater, PaneCalibrationTool tool);
+    void on_dpi_changed(const wxRect &suggested_rect) override;
+
+private:
+    struct FactorControls {
+        PaneCalibrationFactor factor;
+        wxCheckBox            *enabled {nullptr};
+        wxSpinCtrlDouble      *minimum {nullptr};
+        wxSpinCtrlDouble      *maximum {nullptr};
+        wxSpinCtrl            *levels {nullptr};
+    };
+
+    PaneCalibrationConfig read_config() const;
+    void                  refresh_preview();
+    void                  on_start(wxCommandEvent &event);
+
+    Plater                      *m_plater {nullptr};
+    PaneCalibrationTool          m_tool {PaneCalibrationTool::ClearFilament};
+    wxChoice                    *m_design {nullptr};
+    wxSpinCtrl                  *m_taguchi_levels {nullptr};
+    std::vector<FactorControls>  m_factors;
+    wxSpinCtrlDouble            *m_pane_width {nullptr};
+    wxSpinCtrlDouble            *m_pane_depth {nullptr};
+    wxSpinCtrlDouble            *m_pane_height {nullptr};
+    wxSpinCtrlDouble            *m_pane_gap {nullptr};
+    wxCheckBox                  *m_mouse_ears {nullptr};
+    wxCheckBox                  *m_labels {nullptr};
+    wxSpinCtrlDouble            *m_glyph_height {nullptr};
+    wxSpinCtrlDouble            *m_label_relief {nullptr};
+    wxSpinCtrl                  *m_pane_extruder {nullptr};
+    wxSpinCtrl                  *m_label_extruder {nullptr};
+    wxStaticText                *m_preview {nullptr};
+    Button                      *m_generate {nullptr};
 };
 }} // namespace Slic3r::GUI
 #endif

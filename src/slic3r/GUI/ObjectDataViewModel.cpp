@@ -74,6 +74,7 @@ const std::map<InfoItemType, InfoItemAtributes> INFO_ITEMS{
             { InfoItemType::CutConnectors,       {L("Cut connectors"),          "cut_connectors" },    },
             { InfoItemType::FuzzySkin,           {L("Paint-on fuzzy skin"),     "objlist_fuzzy_skin_paint" }, },
             { InfoItemType::ThermalPattern,      {L("Paint-on thermal surface patterning"), "toolbar_thermal_pattern" }, },
+            { InfoItemType::Ironing,             {L("Paint-on ironing"),       "objlist_fuzzy_skin_paint" }, },
 };
 
 ObjectDataViewModelNode::ObjectDataViewModelNode(ObjectDataViewModelNode*   parent,
