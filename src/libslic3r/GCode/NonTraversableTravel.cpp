@@ -269,7 +269,13 @@ void NonTraversableTravelPlanner::validate_vertical(const Point &point, double f
             const Vec3d origin = base_origin + Vec3d(offset.x(), offset.y(), 0.);
             std::vector<igl::Hit> hits;
             AABBTreeIndirect::intersect_ray_all_hits(obstacle.mesh.vertices, obstacle.mesh.indices, obstacle.tree, origin, dir, hits);
-            if (std::any_of(hits.begin(), hits.end(), [length](const igl::Hit &hit) { return hit.t >= -EPSILON && hit.t <= length; })) {
+            const auto first_forward_hit = std::find_if(hits.begin(), hits.end(), [](const igl::Hit &hit) { return hit.t >= -EPSILON; });
+            // A segment may be wholly enclosed by an obstacle and therefore cross no face. For a consistently oriented closed mesh,
+            // the first forward-facing intersection is an exit when the ray origin is inside the volume.
+            const bool starts_inside = first_forward_hit != hits.end() &&
+                                       its_face_normal(obstacle.mesh, first_forward_hit->id).dot(Vec3f::UnitZ()) > 0.f;
+            if (starts_inside ||
+                std::any_of(first_forward_hit, hits.end(), [length](const igl::Hit &hit) { return hit.t <= length; })) {
                 intersects = true;
                 break;
             }
