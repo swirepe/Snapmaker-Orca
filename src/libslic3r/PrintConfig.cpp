@@ -3154,7 +3154,7 @@ void PrintConfigDef::init_fff_params()
     add_thermal_float("thermal_pattern_two_away_weight", L("Two-level weight"), L("Relative chance of moving two levels."), 2.0, 0.0, 1000.0);
     add_thermal_float("thermal_pattern_far_weight", L("Far-level weight"), L("Relative chance of a larger level transition."), 0.05, 0.0, 1000.0);
     add_thermal_float("thermal_pattern_darkness_bias", L("Darkness bias"), L("Per-level probability multiplier; values below one make hotter bands rarer."), 0.75, 0.001, 10.0);
-    add_thermal_float("thermal_pattern_trend_persistence", L("Trend persistence"), L("Persistence of slow lighter/darker drift."), 0.88, 0.0, 0.999);
+    add_thermal_float("thermal_pattern_trend_persistence", L("Trend persistence"), L("Persistence of slow lighter/darker drift."), 0.88, 0.0, 1.0);
     add_thermal_float("thermal_pattern_trend_strength", L("Trend strength"), L("How strongly slow drift biases transitions."), 0.65, 0.0, 10.0);
     add_thermal_float("thermal_pattern_accent_chance", L("Accent chance"), L("Chance of inserting a thin hotter accent band."), 0.08, 0.0, 1.0);
     add_thermal_int("thermal_pattern_accent_boost", L("Accent level boost"), L("Extra levels used by accent bands."), 2, 0, 20);

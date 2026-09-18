@@ -3,9 +3,18 @@
 
 #include <cmath>
 
+#include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/ThermalSurfacePatterning.hpp"
 
 using namespace Slic3r;
+
+TEST_CASE("Thermal surface pattern defaults pass command-line validation", "[thermal_pattern]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    const auto errors = config.validate(true);
+
+    REQUIRE(errors.find("thermal_pattern_trend_persistence") == errors.end());
+}
 
 TEST_CASE("Thermal surface patterns are deterministic per object", "[thermal_pattern]")
 {
