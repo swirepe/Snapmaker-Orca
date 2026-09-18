@@ -9,6 +9,9 @@
 
 namespace Slic3r {
 
+bool thermal_pattern_calibration_values_valid(double base_temperature, double temperature_step,
+                                              int max_level, double band_height);
+
 struct ThermalPatternSettings
 {
     int    seed                  {1};

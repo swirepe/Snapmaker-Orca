@@ -2,11 +2,26 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <limits>
 
 #include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/ThermalSurfacePatterning.hpp"
 
 using namespace Slic3r;
+
+TEST_CASE("Thermal calibration rejects non-finite and unsafe dimensions", "[thermal_pattern]")
+{
+    REQUIRE(thermal_pattern_calibration_values_valid(210.0, 10.0, 6, 5.0));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(0.0, 10.0, 6, 5.0));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(std::numeric_limits<double>::quiet_NaN(), 10.0, 6, 5.0));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(210.0, std::numeric_limits<double>::infinity(), 6, 5.0));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(210.0, 10.0, 0, 5.0));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(210.0, 10.0, 21, 5.0));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(210.0, 10.0, 6, std::numeric_limits<double>::quiet_NaN()));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(210.0, 10.0, 6, 0.39));
+    REQUIRE_FALSE(thermal_pattern_calibration_values_valid(
+        std::numeric_limits<double>::max(), std::numeric_limits<double>::max(), 20, 5.0));
+}
 
 TEST_CASE("Thermal surface pattern defaults pass command-line validation", "[thermal_pattern]")
 {
