@@ -42,11 +42,12 @@ while getopts ":dpa:snt:xbc:1h" opt; do
         echo "   -a: Set ARCHITECTURE (arm64 or x86_64 or universal)"
         echo "   -s: Build slicer only"
         echo "   -n: Nightly build"
-        echo "   -t: Specify minimum version of the target platform, default is 11.3"
+        echo "   -t: Specify minimum version of the target platform, default is 12.0"
         echo "   -x: Use Ninja Multi-Config CMake generator, default is Xcode"
         echo "   -b: Build without reconfiguring CMake"
         echo "   -c: Set CMake build configuration, default is Release"
         echo "   -1: Use single job for building"
+        echo "   Command Line Tools only: ./build_release_macos_no_xcode.sh"
         exit 0
         ;;
     * )
@@ -112,8 +113,12 @@ DEPS_DIR="$PROJECT_DIR/deps"
 DEPS_BUILD_DIR="$DEPS_DIR/build/$ARCH"
 DEPS="$DEPS_BUILD_DIR/OrcaSlicer_deps"
 
-# For Multi-config generators like Ninja and Xcode
-export BUILD_DIR_CONFIG_SUBDIR="/$BUILD_CONFIG"
+# Multi-config generators place products below a configuration directory.
+# Single-config generators such as Unix Makefiles do not.
+case "$SLICER_CMAKE_GENERATOR" in
+    Xcode|*"Multi-Config"*) export BUILD_DIR_CONFIG_SUBDIR="/$BUILD_CONFIG" ;;
+    *)                      export BUILD_DIR_CONFIG_SUBDIR="" ;;
+esac
 
 function build_deps() {
     # iterate over two architectures: x86_64 and arm64

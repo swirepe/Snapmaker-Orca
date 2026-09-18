@@ -453,6 +453,14 @@ else ()
             COMMAND ln -sf Snapmaker_Orca snapmaker-orca
             WORKING_DIRECTORY "$<TARGET_FILE_DIR:Snapmaker_Orca>"
             VERBATIM)
+        # CLI::setup uses the bundle-style ../Resources location on macOS even
+        # for development executables. Keep that location valid so launching
+        # build/src/Snapmaker_Orca does not fail during GUI initialization.
+        add_custom_command(TARGET Snapmaker_Orca POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:Snapmaker_Orca>/../Resources"
+            COMMAND ${CMAKE_COMMAND} -E create_symlink "${SLIC3R_RESOURCES_DIR}" "$<TARGET_FILE_DIR:Snapmaker_Orca>/../Resources"
+            COMMENT "Symlinking resources directory for macOS non-bundle build"
+            VERBATIM)
         # Copy Sentry crashpad_handler to executable directory for non-bundle builds (e.g., Xcode debugging)
         if (SLIC3R_SENTRY)
             add_custom_command(TARGET Snapmaker_Orca POST_BUILD

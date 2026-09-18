@@ -529,6 +529,19 @@ if(POLICY CMP0167)
 endif()
 find_package(Boost 1.83.0 REQUIRED COMPONENTS system filesystem thread log log_setup locale regex chrono atomic date_time iostreams program_options nowide)
 
+# Boost.Iostreams' package metadata always names zstd's shared target, even for
+# an otherwise static build. On macOS that can leave release bundles referring
+# to a Homebrew path. Prefer the static zstd target when the package provides it.
+if(APPLE AND SLIC3R_STATIC AND TARGET Boost::iostreams AND TARGET zstd::libzstd_static)
+    get_target_property(_boost_iostreams_link_libraries Boost::iostreams INTERFACE_LINK_LIBRARIES)
+    if(_boost_iostreams_link_libraries)
+        string(REPLACE "zstd::libzstd_shared" "zstd::libzstd_static"
+            _boost_iostreams_link_libraries "${_boost_iostreams_link_libraries}")
+        set_property(TARGET Boost::iostreams PROPERTY INTERFACE_LINK_LIBRARIES "${_boost_iostreams_link_libraries}")
+    endif()
+    unset(_boost_iostreams_link_libraries)
+endif()
+
 add_library(boost_libs INTERFACE)
 add_library(boost_headeronly INTERFACE)
 
