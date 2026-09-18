@@ -38,6 +38,8 @@ std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           po
                                                     FuzzySurfaceType          type,
                                                     const FuzzySurfaceConfig& config);
 
+double fuzzy_surface_path_length(const std::vector<FuzzySurfacePoint>& points);
+
 void fuzzy_polyline(Points& poly, bool closed, coordf_t slice_z, const FuzzySkinConfig& cfg);
 
 void fuzzy_extrusion_line(Arachne::ExtrusionJunctions& ext_lines, coordf_t slice_z, const FuzzySkinConfig& cfg);

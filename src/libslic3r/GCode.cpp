@@ -7508,7 +7508,7 @@ bool GCode::_needSAFC(const ExtrusionPath& path)
     });
 }
 
-std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double &speed)
+std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double &speed, double path_length_mm)
 {
     if (m_writer.extruder() == nullptr || m_layer == nullptr)
         return {};
@@ -7534,7 +7534,7 @@ std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double
     const bool expert_risky = risky_role && !m_config.thermal_pattern_protect_risky_features.value;
     const bool eligible = filament_enabled && region_enabled && !this->on_first_layer() &&
                           !protected_role && !path.is_force_no_extrusion() && (outer || top || expert_risky);
-    const double nominal_duration = speed > EPSILON ? unscale<double>(path.length()) / speed : 0.0;
+    const double nominal_duration = speed > EPSILON ? path_length_mm / speed : 0.0;
 
     const double base = get_value_at(m_config, m_config.nozzle_temperature,
                                      ConfigFlowDomain::Filament, tool);
@@ -7650,7 +7650,7 @@ std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double
         gcode += Slic3r::format("; THERMAL_PATTERN restore tool=T%1% target=%2%C\n", tool, desired);
     }
 
-    const double duration = speed > EPSILON ? unscale<double>(path.length()) / speed : 0.0;
+    const double duration = speed > EPSILON ? path_length_mm / speed : 0.0;
     state.non_surface_seconds = eligible ? 0.0 : state.non_surface_seconds + duration;
     if (eligible)
         state.last_surface_seconds = duration;
@@ -8025,7 +8025,8 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
         }
     }
 
-    gcode += this->thermal_pattern_before_path(path, speed);
+    const double thermal_path_length_mm = fuzzy_surface ? Feature::FuzzySkin::fuzzy_surface_path_length(fuzzy_points) : path_length_mm;
+    gcode += this->thermal_pattern_before_path(path, speed, thermal_path_length_mm);
 
     bool                        variable_speed = false;
     std::vector<ProcessedPoint> new_points{};

@@ -668,7 +668,7 @@ private:
     int get_bed_temperature_max(const Print& print, const bool is_first_layer) const;
 
     std::string _extrude(const ExtrusionPath &path, std::string description = "", double speed = -1);
-    std::string thermal_pattern_before_path(const ExtrusionPath &path, double &speed);
+    std::string thermal_pattern_before_path(const ExtrusionPath &path, double &speed, double path_length_mm);
     std::string thermal_pattern_restore_tool(size_t tool, const char *reason);
     std::string thermal_pattern_restore_all();
     bool _needSAFC(const ExtrusionPath &path);

@@ -219,6 +219,16 @@ std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           po
     return result;
 }
 
+double fuzzy_surface_path_length(const std::vector<FuzzySurfacePoint>& points)
+{
+    double length = 0.0;
+    for (size_t idx = 1; idx < points.size(); ++idx) {
+        const double xy_length = unscale<double>((points[idx].point - points[idx - 1].point).cast<double>().norm());
+        length += std::hypot(xy_length, points[idx].z_offset - points[idx - 1].z_offset);
+    }
+    return length;
+}
+
 // Thanks Cura developers for this function.
 void fuzzy_polyline(Points& poly, bool closed, coordf_t slice_z, const FuzzySkinConfig& cfg)
 {

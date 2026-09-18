@@ -18712,6 +18712,7 @@ bool Plater::calib_thermal_pattern(const Calib_Params &params)
     filament_config->set_key_value("nozzle_temperature", new ConfigOptionInts(1, base_temperature));
     print_config->set_key_value("layer_height", new ConfigOptionFloat(0.2));
     print_config->set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::Disabled));
+    print_config->set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool(false));
 
     for (ModelObject *object : model().objects) {
@@ -19322,6 +19323,8 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
             object_config.set_key_value("bottom_shell_layers", new ConfigOptionInt(3));
             object_config.set_key_value("precise_z_height", new ConfigOptionBool(true));
             object_config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+            object_config.set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::Disabled));
+            object_config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
             object_config.set_key_value("extruder", new ConfigOptionInt(config.pane_extruder));
             for (const PaneCalibrationValue &entry : plan.rows[row_index])
                 if (entry.factor == PaneCalibrationFactor::LayerHeight)
@@ -19425,6 +19428,7 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
         target.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
         target.set_key_value("precise_z_height", new ConfigOptionBool(true));
         target.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
+        target.set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::Disabled));
     };
     auto apply_fuzzy = [&config](ModelConfig& target, const FuzzySkinCalibrationCell& cell) {
         target.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::External));

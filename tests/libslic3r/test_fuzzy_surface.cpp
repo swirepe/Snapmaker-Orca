@@ -58,6 +58,7 @@ TEST_CASE("Horizontal fuzzy paths are subdivided and joined to their boundaries"
                     config.point_distance + EPSILON);
     }
     REQUIRE(has_displaced_interior);
+    REQUIRE(fuzzy_surface_path_length(points) > unscale<double>(polyline.length()));
 }
 
 TEST_CASE("Lower fuzzy paths displace downward and use bridge compensation", "[FuzzySurface]")
