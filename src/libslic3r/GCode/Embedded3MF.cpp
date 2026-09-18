@@ -276,6 +276,16 @@ bool append(const std::string &gcode_path, const std::string &project_path, std:
         return false;
     }
 
+    ec.clear();
+    if (boost::filesystem::equivalent(gcode_path, project_path, ec)) {
+        error = "G-code and 3MF project paths refer to the same file";
+        return false;
+    }
+    if (ec) {
+        error = "Unable to compare the G-code and 3MF project paths: " + ec.message();
+        return false;
+    }
+
     const std::uint64_t original_size = boost::filesystem::file_size(gcode_path, ec);
     if (ec) {
         error = "Unable to determine the G-code file size: " + ec.message();
@@ -332,14 +342,21 @@ bool append(const std::string &gcode_path, const std::string &project_path, std:
         project.clear();
         project.seekg(0, std::ios::beg);
         std::array<unsigned char, SOURCE_LINE_BYTES> source{};
+        Sha256                                       encoded_sha256;
+        std::uint64_t                                encoded_size = 0;
         while (project) {
             project.read(reinterpret_cast<char *>(source.data()), static_cast<std::streamsize>(source.size()));
             const std::streamsize count = project.gcount();
-            if (count > 0)
+            if (count > 0) {
                 gcode << DATA_PREFIX << encode_base64(source.data(), static_cast<std::size_t>(count)) << '\n';
+                encoded_sha256.update(source.data(), static_cast<std::size_t>(count));
+                encoded_size += static_cast<std::uint64_t>(count);
+            }
         }
         if (!project.eof())
             throw std::runtime_error("Unable to reread the 3MF project");
+        if (encoded_size != project_size || encoded_sha256.finish() != hash)
+            throw std::runtime_error("3MF project changed while it was being embedded");
 
         gcode << SLIC3R_MARKERS.end_marker << '\n';
         gcode.flush();
@@ -358,6 +375,19 @@ bool append(const std::string &gcode_path, const std::string &project_path, std:
 ExtractResult extract(const std::string &gcode_path, const std::string &output_path)
 {
     ExtractResult result;
+
+    try {
+        if (boost::filesystem::exists(output_path) && boost::filesystem::equivalent(gcode_path, output_path)) {
+            result.status = ExtractStatus::IoError;
+            result.error  = "G-code and extraction paths refer to the same file";
+            return result;
+        }
+    } catch (const boost::filesystem::filesystem_error &exception) {
+        result.status = ExtractStatus::IoError;
+        result.error  = "Unable to compare the G-code and extraction paths: " + exception.code().message();
+        return result;
+    }
+
     remove_file(output_path);
 
     boost::nowide::ifstream input(gcode_path, std::ios::binary);

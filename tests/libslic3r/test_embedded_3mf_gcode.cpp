@@ -162,6 +162,30 @@ TEST_CASE("Empty project payloads are rejected", "[Embedded3MF]")
     REQUIRE(files.read(files.gcode) == original_gcode);
 }
 
+TEST_CASE("A G-code file cannot be embedded into itself", "[Embedded3MF]")
+{
+    TempFiles files;
+    files.write(files.gcode, "G28\n");
+
+    const std::string original_gcode = files.read(files.gcode);
+    std::string error;
+    REQUIRE_FALSE(append(files.gcode.string(), files.gcode.string(), error));
+    REQUIRE(error.find("same file") != std::string::npos);
+    REQUIRE(files.read(files.gcode) == original_gcode);
+}
+
+TEST_CASE("Extracting onto the source G-code is rejected without deleting it", "[Embedded3MF]")
+{
+    TempFiles files;
+    files.write(files.gcode, "G28\n");
+
+    const std::string original_gcode = files.read(files.gcode);
+    const ExtractResult result = extract(files.gcode.string(), files.gcode.string());
+    REQUIRE(result.status == ExtractStatus::IoError);
+    REQUIRE(result.error.find("same file") != std::string::npos);
+    REQUIRE(files.read(files.gcode) == original_gcode);
+}
+
 TEST_CASE("Ordinary G-code has no embedded project", "[Embedded3MF]")
 {
     TempFiles files;
