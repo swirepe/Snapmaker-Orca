@@ -2580,7 +2580,7 @@ void TabPrint::build()
         optgroup->append_single_option_line("ironing_inset", "quality_settings_ironing#inset");
         optgroup->append_single_option_line("ironing_angle", "quality_settings_ironing#angle");
 
-        optgroup = page->new_optgroup(L("Regional temperature and cooling"), L"param_region_cooling");
+        optgroup = page->new_optgroup(L("Regional temperature and cooling"), L"param_cooling");
         optgroup->append_single_option_line("nozzle_temperature_override");
         optgroup->append_single_option_line("fan_speed_override");
         optgroup->append_single_option_line("wall_fan_speed_override");
