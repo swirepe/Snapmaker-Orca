@@ -13,18 +13,6 @@ namespace Slic3r {
 
 namespace {
 
-std::string format_value(double value)
-{
-    std::ostringstream stream;
-    stream << std::fixed << std::setprecision(2) << value;
-    std::string text = stream.str();
-    while (!text.empty() && text.back() == '0')
-        text.pop_back();
-    if (!text.empty() && text.back() == '.')
-        text.pop_back();
-    return text;
-}
-
 void translate(indexed_triangle_set& mesh, float x, float y, float z)
 {
     for (Vec3f& vertex : mesh.vertices)
@@ -49,16 +37,33 @@ const std::array<unsigned char, 7>& glyph(char value)
 
 } // namespace
 
+std::string fuzzy_skin_calibration_value_label(double value)
+{
+    if (!std::isfinite(value))
+        throw std::invalid_argument("Calibration label values must be finite");
+
+    std::ostringstream stream;
+    stream << std::fixed << std::setprecision(3) << value;
+    std::string text = stream.str();
+    while (!text.empty() && text.back() == '0')
+        text.pop_back();
+    if (!text.empty() && text.back() == '.')
+        text.pop_back();
+    return text;
+}
+
 std::vector<double> fuzzy_skin_calibration_values(const FuzzySkinCalibrationRange& range)
 {
     if (!std::isfinite(range.minimum) || !std::isfinite(range.maximum) || !std::isfinite(range.step) || range.minimum <= 0.0 ||
         range.maximum < range.minimum || range.step <= 0.0)
         throw std::invalid_argument("Calibration ranges must be positive and ordered");
 
-    const double span  = range.maximum - range.minimum;
-    const size_t count = static_cast<size_t>(std::floor(span / range.step + 0.5)) + 1;
-    if (count == 0 || count > 8 || std::abs(range.minimum + double(count - 1) * range.step - range.maximum) > 1e-6)
+    const double span       = range.maximum - range.minimum;
+    const double step_count = std::round(span / range.step);
+    if (!std::isfinite(step_count) || step_count < 0.0 || step_count > 7.0 ||
+        std::abs(range.minimum + step_count * range.step - range.maximum) > 1e-6)
         throw std::invalid_argument("Calibration ranges must contain between one and eight evenly spaced values");
+    const size_t count = static_cast<size_t>(step_count) + 1;
 
     std::vector<double> values;
     values.reserve(count);
@@ -75,6 +80,10 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
         throw std::invalid_argument("Calibration coupons must be at least 10 x 10 mm with a positive height");
     if (config.mode == FuzzySkinCalibrationMode::SupportedUnderside && config.layout == FuzzySkinCalibrationLayout::ConnectedPanel)
         throw std::invalid_argument("Supported-underside calibration requires breakaway coupons");
+    if (config.thickness.minimum < 0.001 || config.thickness.maximum > 1.0)
+        throw std::invalid_argument("Fuzzy skin calibration thickness must be between 0.001 and 1 mm");
+    if (config.distance.minimum < 0.01 || config.distance.maximum > 5.0)
+        throw std::invalid_argument("Fuzzy skin calibration point distance must be between 0.01 and 5 mm");
 
     const std::vector<double> thicknesses = fuzzy_skin_calibration_values(config.thickness);
     const std::vector<double> distances   = fuzzy_skin_calibration_values(config.distance);
@@ -89,7 +98,8 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
                     const bool   ironing = ironing_index == 1;
                     const size_t row     = 2 * distance + ironing_index;
                     plan.cells.push_back({thicknesses[column], distances[distance], ironing, row, column,
-                                          "T=" + format_value(thicknesses[column]) + " D=" + format_value(distances[distance]) +
+                                          "T=" + fuzzy_skin_calibration_value_label(thicknesses[column]) + " D=" +
+                                              fuzzy_skin_calibration_value_label(distances[distance]) +
                                               " I=" + (ironing ? "1" : "0")});
                 }
     } else {
@@ -98,7 +108,8 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
         for (size_t row = 0; row < plan.rows; ++row)
             for (size_t column = 0; column < plan.columns; ++column)
                 plan.cells.push_back({thicknesses[column], distances[row], false, row, column,
-                                      "T=" + format_value(thicknesses[column]) + " D=" + format_value(distances[row])});
+                                      "T=" + fuzzy_skin_calibration_value_label(thicknesses[column]) + " D=" +
+                                          fuzzy_skin_calibration_value_label(distances[row])});
     }
 
     const size_t maximum_samples = config.mode == FuzzySkinCalibrationMode::IroningComparison ? 128 : 64;

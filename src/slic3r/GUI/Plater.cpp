@@ -19054,7 +19054,7 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
             if (config.labels) {
                 for (size_t column = 0; column < plan.columns; ++column) {
                     const FuzzySkinCalibrationCell& cell = plan.cells[column];
-                    const std::string               text = "T=" + std::to_string(cell.thickness).substr(0, 3);
+                    const std::string text = "T=" + fuzzy_skin_calibration_value_label(cell.thickness);
                     ModelVolume* label = object->add_volume(make_fuzzy_skin_calibration_label(text, 1.8, 0.35), ModelVolumeType::MODEL_PART,
                                                             false);
                     label->name        = "Thickness header";
@@ -19064,7 +19064,7 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
                 }
                 for (size_t row = 0; row < plan.rows; ++row) {
                     const FuzzySkinCalibrationCell& cell = plan.cells[row * plan.columns];
-                    const std::string               text = "D=" + std::to_string(cell.distance).substr(0, 3) +
+                    const std::string text = "D=" + fuzzy_skin_calibration_value_label(cell.distance) +
                                              (config.mode == FuzzySkinCalibrationMode::IroningComparison ?
                                                   std::string(" I=") + (cell.fuzzy_ironing ? "1" : "0") :
                                                   "");

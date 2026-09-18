@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <limits>
 
 #include "libslic3r/Feature/FuzzySkin/FuzzySkin.hpp"
 #include "libslic3r/FuzzySkinCalibration.hpp"
@@ -149,4 +150,36 @@ TEST_CASE("Fuzzy skin calibration creates printable coupon meshes", "[FuzzySurfa
     REQUIRE_FALSE(make_fuzzy_skin_calibration_coupon(20.0, 20.0, 2.0).empty());
     REQUIRE_FALSE(make_fuzzy_skin_calibration_bridge(20.0, 20.0, 8.0, 2.0).empty());
     REQUIRE_FALSE(make_fuzzy_skin_calibration_label("T=0.1 D=0.2", 1.6, 0.35).empty());
+}
+
+TEST_CASE("Fuzzy skin calibration labels preserve hundredths", "[FuzzySurface][Calibration]")
+{
+    REQUIRE(fuzzy_skin_calibration_value_label(0.05) == "0.05");
+    REQUIRE(fuzzy_skin_calibration_value_label(0.005) == "0.005");
+    REQUIRE(fuzzy_skin_calibration_value_label(0.15) == "0.15");
+    REQUIRE(fuzzy_skin_calibration_value_label(1.0) == "1");
+    REQUIRE(fuzzy_skin_calibration_value_label(5.0) == "5");
+}
+
+TEST_CASE("Fuzzy skin calibration rejects values outside print option bounds", "[FuzzySurface][Calibration]")
+{
+    FuzzySkinCalibrationConfig config;
+    config.thickness = {0.0005, 0.001, 0.0005};
+    REQUIRE_THROWS_AS(build_fuzzy_skin_calibration_plan(config), std::invalid_argument);
+
+    config.thickness = {0.5, 1.5, 0.5};
+    REQUIRE_THROWS_AS(build_fuzzy_skin_calibration_plan(config), std::invalid_argument);
+
+    config.thickness = {0.1, 0.4, 0.1};
+    config.distance  = {0.005, 0.01, 0.005};
+    REQUIRE_THROWS_AS(build_fuzzy_skin_calibration_plan(config), std::invalid_argument);
+
+    config.distance  = {1.0, 6.0, 1.0};
+    REQUIRE_THROWS_AS(build_fuzzy_skin_calibration_plan(config), std::invalid_argument);
+}
+
+TEST_CASE("Fuzzy skin calibration rejects step counts before integer conversion", "[FuzzySurface][Calibration]")
+{
+    const FuzzySkinCalibrationRange range{0.1, 0.2, std::numeric_limits<double>::denorm_min()};
+    REQUIRE_THROWS_AS(fuzzy_skin_calibration_values(range), std::invalid_argument);
 }

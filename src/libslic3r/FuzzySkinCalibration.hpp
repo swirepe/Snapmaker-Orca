@@ -51,6 +51,7 @@ struct FuzzySkinCalibrationPlan
 };
 
 std::vector<double>      fuzzy_skin_calibration_values(const FuzzySkinCalibrationRange& range);
+std::string              fuzzy_skin_calibration_value_label(double value);
 FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibrationConfig& config);
 
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height);
