@@ -5,7 +5,10 @@
 #include <wx/dcgraph.h>
 #include "MainFrame.hpp"
 #include "Widgets/DialogButtons.hpp"
+#include <stdexcept>
 #include <string>
+#include <wx/choice.h>
+#include <wx/textctrl.h>
 
 namespace Slic3r { namespace GUI {
 
@@ -1110,6 +1113,126 @@ void Junction_Deviation_Test_Dlg::on_start(wxCommandEvent& event) {
 
 void Junction_Deviation_Test_Dlg::on_dpi_changed(const wxRect& suggested_rect) {
     this->Refresh();
+    Fit();
+}
+
+Fuzzy_Skin_Calibration_Dlg::Fuzzy_Skin_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
+    : DPIDialog(parent, id, _L("Fuzzy skin calibration"), wxDefaultPosition, wxDefaultSize, wxDEFAULT_DIALOG_STYLE), m_plater(plater)
+{
+    SetBackgroundColour(*wxWHITE);
+    SetForegroundColour(wxColour("#363636"));
+    SetFont(Label::Body_14);
+
+    auto* root = new wxBoxSizer(wxVERTICAL);
+    SetSizer(root);
+    auto* settings = new wxFlexGridSizer(2, FromDIP(6), FromDIP(10));
+    settings->AddGrowableCol(1);
+    auto add_control = [this, settings](const wxString& label, wxWindow* control) {
+        settings->Add(new wxStaticText(this, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL);
+        settings->Add(control, 1, wxEXPAND);
+    };
+
+    m_mode = new wxChoice(this, wxID_ANY);
+    m_mode->Append(_L("Texture matrix"));
+    m_mode->Append(_L("Ironing comparison"));
+    m_mode->Append(_L("Supported underside"));
+    m_mode->SetSelection(0);
+    add_control(_L("Mode"), m_mode);
+
+    m_layout = new wxChoice(this, wxID_ANY);
+    m_layout->Append(_L("Connected panel"));
+    m_layout->Append(_L("Breakaway coupons"));
+    m_layout->SetSelection(0);
+    add_control(_L("Layout"), m_layout);
+
+    auto make_number = [this](const wxString& value) {
+        auto* input = new wxTextCtrl(this, wxID_ANY, value, wxDefaultPosition, FromDIP(wxSize(110, -1)));
+        input->SetValidator(wxTextValidator(wxFILTER_NUMERIC));
+        return input;
+    };
+    m_thickness_min  = make_number("0.10");
+    m_thickness_max  = make_number("0.40");
+    m_thickness_step = make_number("0.10");
+    m_distance_min   = make_number("0.20");
+    m_distance_max   = make_number("0.80");
+    m_distance_step  = make_number("0.20");
+    m_coupon_size    = make_number("20");
+    add_control(_L("Thickness minimum (mm)"), m_thickness_min);
+    add_control(_L("Thickness maximum (mm)"), m_thickness_max);
+    add_control(_L("Thickness step (mm)"), m_thickness_step);
+    add_control(_L("Point distance minimum (mm)"), m_distance_min);
+    add_control(_L("Point distance maximum (mm)"), m_distance_max);
+    add_control(_L("Point distance step (mm)"), m_distance_step);
+    add_control(_L("Coupon size (mm)"), m_coupon_size);
+
+    m_labels = new wxCheckBox(this, wxID_ANY, _L("Add physical labels"));
+    m_labels->SetValue(true);
+    settings->AddSpacer(1);
+    settings->Add(m_labels, 0, wxTOP, FromDIP(4));
+    root->Add(settings, 0, wxALL | wxEXPAND, FromDIP(12));
+
+    auto* note = new wxStaticText(this, wxID_ANY,
+                                  _L("Connected panels use smooth row and column headers. Breakaway coupons carry their own labels."));
+    note->Wrap(FromDIP(430));
+    root->Add(note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(12));
+
+    auto* buttons = new DialogButtons(this, {"OK"});
+    root->Add(buttons, 0, wxEXPAND);
+    buttons->GetOK()->Bind(wxEVT_BUTTON, &Fuzzy_Skin_Calibration_Dlg::on_start, this);
+    m_mode->Bind(wxEVT_CHOICE, &Fuzzy_Skin_Calibration_Dlg::on_mode_changed, this);
+
+    wxGetApp().UpdateDlgDarkUI(this);
+    Layout();
+    Fit();
+}
+
+FuzzySkinCalibrationConfig Fuzzy_Skin_Calibration_Dlg::read_config() const
+{
+    auto read = [](wxTextCtrl* input, const char* name) {
+        double value = 0.0;
+        if (!input->GetValue().ToDouble(&value))
+            throw std::invalid_argument(std::string("Invalid ") + name);
+        return value;
+    };
+
+    FuzzySkinCalibrationConfig config;
+    config.mode         = m_mode->GetSelection() == 0 ? FuzzySkinCalibrationMode::TextureMatrix :
+                          m_mode->GetSelection() == 1 ? FuzzySkinCalibrationMode::IroningComparison :
+                                                        FuzzySkinCalibrationMode::SupportedUnderside;
+    config.layout       = m_layout->GetSelection() == 0 ? FuzzySkinCalibrationLayout::ConnectedPanel :
+                                                          FuzzySkinCalibrationLayout::BreakawayCoupons;
+    config.thickness    = {read(m_thickness_min, "minimum thickness"), read(m_thickness_max, "maximum thickness"),
+                           read(m_thickness_step, "thickness step")};
+    config.distance     = {read(m_distance_min, "minimum point distance"), read(m_distance_max, "maximum point distance"),
+                           read(m_distance_step, "point distance step")};
+    config.coupon_width = config.coupon_depth = read(m_coupon_size, "coupon size");
+    config.labels                             = m_labels->GetValue();
+    return config;
+}
+
+void Fuzzy_Skin_Calibration_Dlg::on_start(wxCommandEvent&)
+{
+    try {
+        const FuzzySkinCalibrationConfig config = read_config();
+        (void) build_fuzzy_skin_calibration_plan(config);
+        if (m_plater->calib_fuzzy_skin(config))
+            EndModal(wxID_OK);
+    } catch (const std::exception& error) {
+        MessageDialog(this, from_u8(error.what()), _L("Invalid fuzzy skin calibration"), wxICON_WARNING | wxOK).ShowModal();
+    }
+}
+
+void Fuzzy_Skin_Calibration_Dlg::on_mode_changed(wxCommandEvent&)
+{
+    const bool supported_underside = m_mode->GetSelection() == 2;
+    if (supported_underside)
+        m_layout->SetSelection(1);
+    m_layout->Enable(!supported_underside);
+}
+
+void Fuzzy_Skin_Calibration_Dlg::on_dpi_changed(const wxRect&)
+{
+    Refresh();
     Fit();
 }
 

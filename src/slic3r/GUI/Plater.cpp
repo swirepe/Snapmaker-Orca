@@ -7,6 +7,7 @@
 #include "MixedFilamentColorMapPanel.hpp"
 #include "MixedColorMatchHelpers.hpp"
 #include "libslic3r/FilamentColorLibrary.hpp" // kFullSpectrumSlotCount (recommended slot write-back)
+#include "libslic3r/FuzzySkinCalibration.hpp"
 #include "libslic3r/Config.hpp"
 #include "libslic3r/MixedFilament.hpp"
 #include "libslic3r/filament_mixer.h"
@@ -18939,6 +18940,194 @@ void Plater::calib_junction_deviation(const Calib_Params& params)
     p->background_process.fff_print()->set_calib_params(params);
 }
 
+bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
+{
+    FuzzySkinCalibrationPlan plan;
+    try {
+        plan = build_fuzzy_skin_calibration_plan(config);
+    } catch (const std::exception& error) {
+        MessageDialog(this, from_u8(error.what()), _L("Invalid fuzzy skin calibration"), wxICON_WARNING | wxOK).ShowModal();
+        return false;
+    }
+
+    const DynamicPrintConfig full_config    = wxGetApp().preset_bundle->full_config();
+    const auto*              printable_area = full_config.opt<ConfigOptionPoints>("printable_area");
+    if (printable_area == nullptr || printable_area->values.size() < 3) {
+        MessageDialog(this, _L("The active printer does not define a usable build plate."), _L("Fuzzy skin calibration"),
+                      wxICON_WARNING | wxOK)
+            .ShowModal();
+        return false;
+    }
+
+    const bool   connected   = config.layout == FuzzySkinCalibrationLayout::ConnectedPanel;
+    const double header_size = connected && config.labels ? (config.mode == FuzzySkinCalibrationMode::IroningComparison ? 16.0 : 8.0) : 0.0;
+    const double grid_width  = double(plan.columns) * config.coupon_width + double(plan.columns - 1) * config.gap;
+    const double grid_depth  = double(plan.rows) * config.coupon_depth + double(plan.rows - 1) * config.gap;
+    const double total_width = grid_width + header_size;
+    const double total_depth = grid_depth + header_size;
+    const BoundingBoxf bed_extent  = get_extents(printable_area->values);
+    const Polygon      bed_polygon = Polygon::new_scale(printable_area->values);
+    const BoundingBox  footprint(Point::new_scale(bed_extent.center().x() - 0.5 * total_width - 2.0,
+                                                  bed_extent.center().y() - 0.5 * total_depth - 2.0),
+                                 Point::new_scale(bed_extent.center().x() + 0.5 * total_width + 2.0,
+                                                  bed_extent.center().y() + 0.5 * total_depth + 2.0));
+    const Polygon      footprint_polygon = footprint.polygon();
+    const bool         footprint_fits    = std::all_of(footprint_polygon.points.begin(), footprint_polygon.points.end(),
+                                                       [&bed_polygon](const Point& corner) { return bed_polygon.contains(corner); });
+    if (total_width + 4.0 > bed_extent.size().x() || total_depth + 4.0 > bed_extent.size().y() || !footprint_fits) {
+        MessageDialog(this, _L("The selected calibration does not fit on the active build plate. Reduce the ranges or coupon size."),
+                      _L("Fuzzy skin calibration"), wxICON_WARNING | wxOK)
+            .ShowModal();
+        return false;
+    }
+
+    if (new_project(false, false, _L("Fuzzy skin calibration")) == wxID_CANCEL)
+        return false;
+    wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
+
+    const Vec2d         bed_center   = bed_extent.center();
+    const Vec3d         plate_origin = get_partplate_list().get_curr_plate()->get_origin();
+    std::vector<size_t> object_indices;
+
+    auto apply_common = [](ModelConfig& target) {
+        target.set_key_value("wall_loops", new ConfigOptionInt(2));
+        target.set_key_value("top_shell_layers", new ConfigOptionInt(4));
+        target.set_key_value("bottom_shell_layers", new ConfigOptionInt(3));
+        target.set_key_value("sparse_infill_density", new ConfigOptionPercent(100));
+        target.set_key_value("top_surface_pattern", new ConfigOptionEnum<InfillPattern>(ipAlignedRectilinear));
+        target.set_key_value("internal_solid_infill_pattern", new ConfigOptionEnum<InfillPattern>(ipAlignedRectilinear));
+        target.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btNoBrim));
+        target.set_key_value("precise_z_height", new ConfigOptionBool(true));
+        target.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
+    };
+    auto apply_fuzzy = [&config](ModelConfig& target, const FuzzySkinCalibrationCell& cell) {
+        target.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::External));
+        target.set_key_value("fuzzy_skin_thickness", new ConfigOptionFloat(cell.thickness));
+        target.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(cell.distance));
+        target.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(config.mode != FuzzySkinCalibrationMode::SupportedUnderside));
+        target.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(config.mode == FuzzySkinCalibrationMode::SupportedUnderside));
+        target.set_key_value("fuzzy_skin_connect_walls", new ConfigOptionBool(true));
+        target.set_key_value("fuzzy_skin_compensate_extrusion", new ConfigOptionBool(true));
+        target.set_key_value("fuzzy_skin_min_support_distance", new ConfigOptionFloat(0.05));
+        target.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(cell.fuzzy_ironing));
+        target.set_key_value("ironing_type",
+                             new ConfigOptionEnum<IroningType>(cell.fuzzy_ironing ? IroningType::TopSurfaces : IroningType::NoIroning));
+    };
+    auto smooth_label = [](ModelVolume& volume) {
+        volume.config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
+        volume.config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(false));
+        volume.config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
+        volume.config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+    };
+    auto register_object = [this, &object_indices](ModelObject& object) {
+        object.invalidate_bounding_box();
+        const size_t object_index = model().objects.size() - 1;
+        object_indices.emplace_back(object_index);
+        get_partplate_list().add_to_plate(object_index, 0, get_partplate_list().get_curr_plate_index());
+        sidebar().obj_list()->add_object_to_list(object_index);
+    };
+
+    try {
+        if (connected) {
+            constexpr double base_height = 0.6;
+            ModelObject*     object      = model().add_object();
+            object->name                 = "Fuzzy skin connected calibration panel";
+            apply_common(object->config);
+            ModelVolume* base = object->add_volume(make_fuzzy_skin_calibration_coupon(total_width, total_depth, base_height),
+                                                   ModelVolumeType::MODEL_PART, false);
+            base->name        = "Smooth calibration base";
+            smooth_label(*base);
+
+            const double left = -0.5 * total_width + header_size;
+            const double top  = 0.5 * total_depth - header_size;
+            for (const FuzzySkinCalibrationCell& cell : plan.cells) {
+                const double x      = left + 0.5 * config.coupon_width + double(cell.column) * (config.coupon_width + config.gap);
+                const double y      = top - 0.5 * config.coupon_depth - double(cell.row) * (config.coupon_depth + config.gap);
+                ModelVolume* coupon = object->add_volume(make_fuzzy_skin_calibration_coupon(config.coupon_width, config.coupon_depth,
+                                                                                            config.coupon_height),
+                                                         ModelVolumeType::MODEL_PART, false);
+                coupon->name        = cell.label;
+                coupon->set_offset(Vec3d(x, y, base_height));
+                apply_fuzzy(coupon->config, cell);
+            }
+
+            if (config.labels) {
+                for (size_t column = 0; column < plan.columns; ++column) {
+                    const FuzzySkinCalibrationCell& cell = plan.cells[column];
+                    const std::string               text = "T=" + std::to_string(cell.thickness).substr(0, 3);
+                    ModelVolume* label = object->add_volume(make_fuzzy_skin_calibration_label(text, 1.8, 0.35), ModelVolumeType::MODEL_PART,
+                                                            false);
+                    label->name        = "Thickness header";
+                    const double x     = left + 0.5 * config.coupon_width + double(column) * (config.coupon_width + config.gap);
+                    label->set_offset(Vec3d(x, 0.5 * total_depth - 0.5 * header_size, base_height));
+                    smooth_label(*label);
+                }
+                for (size_t row = 0; row < plan.rows; ++row) {
+                    const FuzzySkinCalibrationCell& cell = plan.cells[row * plan.columns];
+                    const std::string               text = "D=" + std::to_string(cell.distance).substr(0, 3) +
+                                             (config.mode == FuzzySkinCalibrationMode::IroningComparison ?
+                                                  std::string(" I=") + (cell.fuzzy_ironing ? "1" : "0") :
+                                                  "");
+                    ModelVolume* label = object->add_volume(make_fuzzy_skin_calibration_label(text, 1.8, 0.35), ModelVolumeType::MODEL_PART,
+                                                            false);
+                    label->name        = "Row header";
+                    const double y     = top - 0.5 * config.coupon_depth - double(row) * (config.coupon_depth + config.gap);
+                    label->set_offset(Vec3d(-0.5 * total_width + 0.5 * header_size, y, base_height));
+                    smooth_label(*label);
+                }
+            }
+
+            ModelInstance* instance = object->add_instance();
+            instance->set_offset(plate_origin + Vec3d(bed_center.x(), bed_center.y(), 0.0));
+            register_object(*object);
+        } else {
+            const double grid_left = bed_center.x() - 0.5 * grid_width;
+            const double grid_top  = bed_center.y() + 0.5 * grid_depth;
+            for (size_t index = 0; index < plan.cells.size(); ++index) {
+                const FuzzySkinCalibrationCell& cell   = plan.cells[index];
+                ModelObject*                    object = model().add_object();
+                object->name                           = "Fuzzy skin coupon " + std::to_string(index + 1) + " " + cell.label;
+                apply_common(object->config);
+                const bool   underside = config.mode == FuzzySkinCalibrationMode::SupportedUnderside;
+                ModelVolume* coupon    = object->add_volume(underside ?
+                                                                make_fuzzy_skin_calibration_bridge(config.coupon_width, config.coupon_depth,
+                                                                                                   8.0, config.coupon_height) :
+                                                                make_fuzzy_skin_calibration_coupon(config.coupon_width, config.coupon_depth,
+                                                                                                   config.coupon_height),
+                                                         ModelVolumeType::MODEL_PART, false);
+                coupon->name = "Fuzzy test surface";
+                apply_fuzzy(coupon->config, cell);
+                if (underside) {
+                    object->config.set_key_value("enable_support", new ConfigOptionBool(true));
+                    object->config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stNormalAuto));
+                    object->config.set_key_value("support_top_z_distance", new ConfigOptionFloat(0.5));
+                    object->config.set_key_value("bridge_no_support", new ConfigOptionBool(false));
+                }
+                if (config.labels) {
+                    ModelVolume* label = object->add_volume(make_fuzzy_skin_calibration_label(cell.label, 1.6, 0.35),
+                                                            ModelVolumeType::MODEL_PART, false);
+                    label->name        = "Calibration label";
+                    label->set_offset(Vec3d(0.0, 0.0, (underside ? 8.0 : 0.0) + config.coupon_height));
+                    smooth_label(*label);
+                }
+                const double   x        = grid_left + 0.5 * config.coupon_width + double(cell.column) * (config.coupon_width + config.gap);
+                const double   y        = grid_top - 0.5 * config.coupon_depth - double(cell.row) * (config.coupon_depth + config.gap);
+                ModelInstance* instance = object->add_instance();
+                instance->set_offset(plate_origin + Vec3d(x, y, 0.0));
+                register_object(*object);
+            }
+        }
+    } catch (const std::exception& error) {
+        MessageDialog(this, from_u8(error.what()), _L("Cannot generate fuzzy skin calibration"), wxICON_WARNING | wxOK).ShowModal();
+        return false;
+    }
+
+    changed_objects(object_indices);
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
+    wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
+    return true;
+}
+
 BuildVolume_Type Plater::get_build_volume_type() const { return p->bed.get_build_volume_type(); }
 
 void Plater::import_zip_archive()
@@ -24695,5 +24884,3 @@ SuppressBackgroundProcessingUpdate::~SuppressBackgroundProcessingUpdate()
 }
 
 }}    // namespace Slic3r::GUI
-
-

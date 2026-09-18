@@ -2921,6 +2921,15 @@ optgroup->append_single_option_line("skirt_loops", "others_settings_skirt#loops"
         optgroup->append_single_option_line("fuzzy_skin_octaves", "others_settings_fuzzy_skin#skin-noise-octaves");
         optgroup->append_single_option_line("fuzzy_skin_persistence", "others_settings_fuzzy_skin#skin-noise-persistence");
         optgroup->append_single_option_line("fuzzy_skin_first_layer", "others_settings_fuzzy_skin#apply-fuzzy-skin-to-first-layer");
+        optgroup->append_single_option_line("fuzzy_skin_top_surface", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_lower_surface", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_top_surface_first_layer", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_connect_walls", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_compensate_extrusion", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_bridge_compensation_multiplier",
+                                            "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_min_support_distance", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
+        optgroup->append_single_option_line("fuzzy_skin_ironing", "others_settings_fuzzy_skin#fuzzy-ironing");
 
         optgroup = page->new_optgroup(L("G-code output"), L"param_gcode");
         optgroup->append_single_option_line("reduce_infill_retraction", "others_settings_g_code_output#reduce-infill-retraction");

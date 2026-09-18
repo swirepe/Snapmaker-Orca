@@ -25,6 +25,9 @@ Useful for creating a textures or hide surface imperfections but will increase p
 - [Skin Noise Octaves](#skin-noise-octaves)
 - [Skin Noise Persistence](#skin-noise-persistence)
 - [Apply fuzzy skin to first layer](#apply-fuzzy-skin-to-first-layer)
+- [Horizontal fuzzy surfaces](#horizontal-fuzzy-surfaces)
+- [Fuzzy ironing](#fuzzy-ironing)
+- [Calibration](#calibration)
 - [Credits](#credits)
 
 ## Fuzzy Skin Mode
@@ -136,6 +139,32 @@ Enable to apply fuzzy skin to the first layer.
 
 > [!CAUTION]
 > Can impact bed adhesion and surface contact.
+
+## Horizontal fuzzy surfaces
+
+**Fuzzy skin on top surfaces** converts top-solid infill into coordinated non-planar XYZ moves. It reuses the normal skin thickness, point distance, and noise controls. **Apply top-surface fuzzy skin to first layer** is intentionally separate from the wall-first-layer option: walls can remain textured down to the bed while the bed-facing surface stays flat.
+
+**Fuzzy skin on supported lower surfaces** applies downward texture only to external bridge infill when support is enabled. The displacement is limited by the configured support top-Z gap, while **Minimum support-interface distance** reserves clearance above the support. Ordinary bottom surfaces, internal bridges, unsupported bridges, and overhang walls are unchanged.
+
+**Connect fuzzy surface boundaries** returns the ends of each affected path to its nominal layer height, reducing steps where horizontal texture meets walls. **Compensate fuzzy-surface extrusion** accounts for the extra length of the three-dimensional path. Lower surfaces can use a stronger compensation exponent because bridge extrusion behaves differently from supported top infill.
+
+Start conservatively: 0.1 mm thickness and 0.4 mm point distance are suitable first trials for a typical 0.4 mm nozzle. Inspect generated XYZ moves in Preview and avoid amplitudes that approach the nozzle clearance or support gap.
+
+## Fuzzy ironing
+
+**Iron fuzzy surfaces** is experimental. When enabled together with ordinary top-surface ironing, the ironing toolpath follows the same deterministic height field as the underlying fuzzy skin. It polishes the texture instead of flattening it. When disabled, normal ironing is skipped over fuzzy top regions to prevent collisions with peaks.
+
+The nozzle footprint can still contact nearby peaks even when its center follows the field. Use small thickness, conservative ironing flow, and generous point distance for initial tests.
+
+## Calibration
+
+Open **Calibration → Fuzzy skin** to generate one of three labeled artifacts:
+
+- **Texture matrix** varies thickness by column and point distance by row.
+- **Ironing comparison** produces matched raw and fuzzy-ironed samples for every matrix cell.
+- **Supported underside** creates supported bridge canopies for inspecting downward texture and is available as breakaway coupons.
+
+Connected panels use smooth row and column headers. Breakaway coupons carry their own physical `T`, `D`, and, where relevant, `I` label. The generator checks the active build-plate size before replacing the current project, and all tested values remain object or volume overrides rather than modifying the selected preset.
 
 ## Credits
 

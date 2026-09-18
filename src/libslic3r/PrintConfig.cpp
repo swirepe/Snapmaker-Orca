@@ -3041,6 +3041,73 @@ void PrintConfigDef::init_fff_params()
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionFloat(0.5));
 
+    def           = this->add("fuzzy_skin_top_surface", coBool);
+    def->label    = L("Fuzzy skin on top surfaces");
+    def->category = L("Others");
+    def->tooltip  = L("Add non-planar vertical fuzzy skin to top-surface extrusion paths. The fuzzy skin thickness controls the maximum "
+                       "height and the point distance controls path subdivision.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def           = this->add("fuzzy_skin_lower_surface", coBool);
+    def->label    = L("Fuzzy skin on supported lower surfaces");
+    def->category = L("Others");
+    def->tooltip  = L(
+        "Add downward non-planar fuzzy skin to supported external bridge surfaces. Unsupported and internal bridges are not changed.");
+    def->mode = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def           = this->add("fuzzy_skin_top_surface_first_layer", coBool);
+    def->label    = L("Apply top-surface fuzzy skin to first layer");
+    def->category = L("Others");
+    def->tooltip  = L("Allow vertical fuzzy skin on top surfaces printed on the first layer. This is independent of the wall fuzzy-skin "
+                       "first-layer setting.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
+    def           = this->add("fuzzy_skin_connect_walls", coBool);
+    def->label    = L("Connect fuzzy surface boundaries");
+    def->category = L("Others");
+    def->tooltip  = L("Keep the first and last point of each fuzzy surface path at the nominal layer height for a clean connection to "
+                       "neighboring walls and paths.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
+
+    def           = this->add("fuzzy_skin_compensate_extrusion", coBool);
+    def->label    = L("Compensate fuzzy-surface extrusion");
+    def->category = L("Others");
+    def->tooltip  = L("Increase extrusion to account for the additional distance traveled by non-planar fuzzy-surface segments.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(true));
+
+    def           = this->add("fuzzy_skin_bridge_compensation_multiplier", coFloat);
+    def->label    = L("Lower-surface extrusion compensation");
+    def->category = L("Others");
+    def->tooltip  = L("Exponent applied to geometric extrusion compensation on fuzzy supported lower surfaces. Higher values add more "
+                       "material to displaced bridge segments.");
+    def->min      = 0;
+    def->max      = 10;
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(3.0));
+
+    def           = this->add("fuzzy_skin_min_support_distance", coFloat);
+    def->label    = L("Minimum support-interface distance");
+    def->category = L("Others");
+    def->tooltip  = L("Minimum vertical clearance to preserve between downward fuzzy skin and the top support interface.");
+    def->sidetext = "mm";
+    def->min      = 0;
+    def->max      = 5;
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionFloat(0.1));
+
+    def           = this->add("fuzzy_skin_ironing", coBool);
+    def->label    = L("Iron fuzzy surfaces");
+    def->category = L("Others");
+    def->tooltip  = L("Experimental: make ironing paths follow the same non-planar height field as fuzzy top surfaces. Large thickness or "
+                       "tight point spacing may let the nozzle scrape adjacent peaks.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("filter_out_gap_fill", coFloat);
     def->label = L("Filter out tiny gaps");
     def->category = L("Layers and Perimeters");

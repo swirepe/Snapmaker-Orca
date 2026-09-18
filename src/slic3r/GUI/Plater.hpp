@@ -51,6 +51,7 @@ class ModelObject;
 class ModelInstance;
 class Print;
 class SLAPrint;
+struct FuzzySkinCalibrationConfig;
 //BBS: add partplatelist and SlicingStatusEvent
 class PartPlateList;
 class SlicingStatusEvent;
@@ -359,6 +360,7 @@ public:
     void calib_input_shaping_freq(const Calib_Params& params);
     void calib_input_shaping_damp(const Calib_Params& params);
     void calib_junction_deviation(const Calib_Params& params);
+    bool calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config);
 
     BuildVolume_Type get_build_volume_type() const;
 

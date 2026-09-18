@@ -24,6 +24,7 @@
 #include "libslic3r/format.hpp"
 #include "Time.hpp"
 #include "GCode/ExtrusionProcessor.hpp"
+#include "Feature/FuzzySkin/FuzzySkin.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
@@ -94,6 +95,56 @@ static const float g_min_purge_volume      = 100.f;
 static const float g_purge_volume_one_time = 135.f;
 static const int   g_max_flush_count       = 4;
 // static const size_t g_max_label_object = 64;
+
+enum class HorizontalFuzzyKind { None, Top, Lower };
+
+static bool horizontal_fuzzy_skin_enabled(const FullPrintConfig& config)
+{
+    return config.fuzzy_skin.value != FuzzySkinType::None && config.fuzzy_skin_thickness.value > EPSILON &&
+           config.fuzzy_skin_point_distance.value > EPSILON;
+}
+
+static bool horizontal_top_fuzzy_skin_enabled(const FullPrintConfig& config, bool first_layer)
+{
+    return horizontal_fuzzy_skin_enabled(config) && config.fuzzy_skin_top_surface.value &&
+           (!first_layer || config.fuzzy_skin_top_surface_first_layer.value);
+}
+
+static HorizontalFuzzyKind horizontal_fuzzy_kind(const FullPrintConfig& config, ExtrusionRole role, bool first_layer)
+{
+    if (role == erTopSolidInfill && horizontal_top_fuzzy_skin_enabled(config, first_layer))
+        return HorizontalFuzzyKind::Top;
+
+    if (role == erIroning && horizontal_top_fuzzy_skin_enabled(config, first_layer) && config.fuzzy_skin_ironing.value)
+        return HorizontalFuzzyKind::Top;
+
+    if (role == erBridgeInfill && horizontal_fuzzy_skin_enabled(config) && config.fuzzy_skin_lower_surface.value &&
+        config.enable_support.value && !config.bridge_no_support.value &&
+        config.support_top_z_distance.value > config.fuzzy_skin_min_support_distance.value + EPSILON)
+        return HorizontalFuzzyKind::Lower;
+
+    return HorizontalFuzzyKind::None;
+}
+
+static Feature::FuzzySkin::FuzzySurfaceConfig horizontal_fuzzy_config(const FullPrintConfig& config, HorizontalFuzzyKind kind)
+{
+    Feature::FuzzySkin::FuzzySurfaceConfig result;
+    result.point_distance                 = config.fuzzy_skin_point_distance.value;
+    result.displacement                   = config.fuzzy_skin_thickness.value;
+    result.connect_boundaries             = config.fuzzy_skin_connect_walls.value;
+    result.compensate_extrusion           = config.fuzzy_skin_compensate_extrusion.value;
+    result.bridge_compensation_multiplier = config.fuzzy_skin_bridge_compensation_multiplier.value;
+    result.noise_type                     = config.fuzzy_skin_noise_type.value;
+    result.noise_scale                    = config.fuzzy_skin_scale.value;
+    result.noise_octaves                  = config.fuzzy_skin_octaves.value;
+    result.noise_persistence              = config.fuzzy_skin_persistence.value;
+    result.displacement = Feature::FuzzySkin::fuzzy_surface_displacement(result.displacement, config.support_top_z_distance.value,
+                                                                         config.fuzzy_skin_min_support_distance.value,
+                                                                         kind == HorizontalFuzzyKind::Lower ?
+                                                                             Feature::FuzzySkin::FuzzySurfaceType::Lower :
+                                                                             Feature::FuzzySkin::FuzzySurfaceType::Top);
+    return result;
+}
 
 Vec2d travel_point_1;
 Vec2d travel_point_2;
@@ -7253,13 +7304,15 @@ std::string GCode::extrude_infill(const Print& print, const std::vector<ObjectBy
     const char*          extrusion_name = ironing ? "ironing" : "infill";
     for (const ObjectByExtruder::Island::Region& region : by_region)
         if (!region.infills.empty()) {
+            m_config.apply(print.get_print_region(&region - &by_region.front()).config());
+            if (ironing && horizontal_top_fuzzy_skin_enabled(m_config, this->on_first_layer()) && !m_config.fuzzy_skin_ironing.value)
+                continue;
             extrusions.clear();
             extrusions.reserve(region.infills.size());
             for (ExtrusionEntity* ee : region.infills)
                 if ((ee->role() == erIroning) == ironing)
                     extrusions.emplace_back(ee);
             if (!extrusions.empty()) {
-                m_config.apply(print.get_print_region(&region - &by_region.front()).config());
                 chain_and_reorder_extrusion_entities(extrusions, &m_last_pos);
                 for (const ExtrusionEntity* fill : extrusions) {
                     auto* eec = dynamic_cast<const ExtrusionEntityCollection*>(fill);
@@ -7418,6 +7471,20 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
 
     const ExtrusionPathSloped* sloped = dynamic_cast<const ExtrusionPathSloped*>(&path);
 
+    const HorizontalFuzzyKind fuzzy_kind = sloped == nullptr ? horizontal_fuzzy_kind(m_config, path.role(), this->on_first_layer()) :
+                                                               HorizontalFuzzyKind::None;
+    const Feature::FuzzySkin::FuzzySurfaceConfig             fuzzy_config       = horizontal_fuzzy_config(m_config, fuzzy_kind);
+    const Feature::FuzzySkin::FuzzySurfaceType               fuzzy_surface_type = fuzzy_kind == HorizontalFuzzyKind::Lower ?
+                                                                                      Feature::FuzzySkin::FuzzySurfaceType::Lower :
+                                                                                      Feature::FuzzySkin::FuzzySurfaceType::Top;
+    const std::vector<Feature::FuzzySkin::FuzzySurfacePoint> fuzzy_points       = fuzzy_kind == HorizontalFuzzyKind::None ?
+                                                                                      std::vector<Feature::FuzzySkin::FuzzySurfacePoint>{} :
+                                                                                      Feature::FuzzySkin::fuzzy_surface_points(path.polyline,
+                                                                                                                               m_nominal_z,
+                                                                                                                               fuzzy_surface_type,
+                                                                                                                               fuzzy_config);
+    const bool                                               fuzzy_surface      = !fuzzy_points.empty();
+
     const auto get_sloped_z = [&sloped, this](double z_ratio) {
         const auto height = sloped->height;
         return lerp(m_nominal_z - height, m_nominal_z, z_ratio);
@@ -7428,16 +7495,21 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
         auto target_z       = get_sloped_z(sloped->slope_begin.z_ratio);
         slope_need_z_travel = m_writer.will_move_z(target_z);
     }
+    const double fuzzy_start_z       = fuzzy_surface ? m_nominal_z + fuzzy_points.front().z_offset : DBL_MAX;
+    const bool   fuzzy_need_z_travel = fuzzy_surface && m_writer.will_move_z(fuzzy_start_z);
     // Move to first point of extrusion path
     // path is 2D. But in slope lift case, lift z is done in travel_to function.
     // Add m_need_change_layer_lift_z when change_layer in case of no lift if m_last_pos is equal to path.first_point() by chance
-    if (!m_last_pos_defined || m_last_pos != path.first_point() || m_need_change_layer_lift_z || slope_need_z_travel) {
+    if (!m_last_pos_defined || m_last_pos != path.first_point() || m_need_change_layer_lift_z || slope_need_z_travel ||
+        fuzzy_need_z_travel) {
         const bool _last_pos_undefined = !m_last_pos_defined;
         gcode += this->travel_to(path.first_point(), path.role(), "move to first " + description + " point",
-                                 sloped == nullptr ? DBL_MAX : get_sloped_z(sloped->slope_begin.z_ratio));
+                                 fuzzy_surface     ? fuzzy_start_z :
+                                 sloped == nullptr ? DBL_MAX :
+                                                     get_sloped_z(sloped->slope_begin.z_ratio));
         m_need_change_layer_lift_z = false;
         // Orca: force restore Z after unknown last pos
-        if (_last_pos_undefined && !slope_need_z_travel) {
+        if (_last_pos_undefined && !slope_need_z_travel && !fuzzy_need_z_travel) {
             gcode += this->writer().travel_to_z(m_last_layer_z, "force restore Z after unknown last pos", true);
         }
     }
@@ -7727,6 +7799,8 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
             return fabs(double(p.speed) - speed) > 1;
         }); // Ignore small speed variations (under 1mm/sec)
     }
+    if (fuzzy_surface)
+        variable_speed = false;
 
     double F = speed * 60; // convert mm/sec to mm/min
 
@@ -7964,7 +8038,27 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
             }
             // BBS: use G1 if not enable arc fitting or has no arc fitting result or in spiral_mode mode or we are doing sloped extrusion
             // Attention: G2 and G3 is not supported in spiral_mode mode
-            if (!m_config.enable_arc_fitting || path.polyline.fitting_result.empty() || m_config.spiral_mode || sloped != nullptr) {
+            if (fuzzy_surface) {
+                for (size_t idx = 1; idx < fuzzy_points.size(); ++idx) {
+                    std::string  tempDescription = description;
+                    const double line_length     = unscale<double>(
+                        (fuzzy_points[idx].point - fuzzy_points[idx - 1].point).cast<double>().norm());
+                    if (line_length < EPSILON)
+                        continue;
+                    auto dE = e_per_mm * line_length;
+                    if (_needSAFC(path)) {
+                        const auto oldE = dE;
+                        dE              = m_small_area_infill_flow_compensator->modify_flow(line_length, dE, path.role());
+                        if (m_config.gcode_comments && oldE > 0 && oldE != dE)
+                            tempDescription += Slic3r::format(" | Old Flow Value: %0.5f Length: %0.5f", oldE, line_length);
+                    }
+                    dE *= fuzzy_points[idx].extrusion_multiplier;
+                    const Vec2d destination_xy = this->point_to_gcode(fuzzy_points[idx].point);
+                    const Vec3d destination(destination_xy.x(), destination_xy.y(), m_nominal_z + fuzzy_points[idx].z_offset);
+                    gcode += m_writer.extrude_to_xyz(destination, dE, GCodeWriter::full_gcode_comment ? tempDescription : "",
+                                                     path.is_force_no_extrusion());
+                }
+            } else if (!m_config.enable_arc_fitting || path.polyline.fitting_result.empty() || m_config.spiral_mode || sloped != nullptr) {
                 double path_length  = 0.;
                 double total_length = sloped == nullptr ? 0. : path.polyline.length() * SCALING_FACTOR;
                 for (const Line& line : path.polyline.lines()) {
@@ -8176,6 +8270,9 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
     if (m_enable_cooling_markers) {
         gcode += ";_EXTRUDE_END\n";
     }
+
+    if (fuzzy_surface)
+        gcode += m_writer.travel_to_z(m_nominal_z, "restore nominal Z after fuzzy surface");
 
     if (path.role() != ExtrusionRole::erGapFill) {
         m_last_notgapfill_extrusion_role = path.role();

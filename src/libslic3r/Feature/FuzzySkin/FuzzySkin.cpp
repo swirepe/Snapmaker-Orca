@@ -1,3 +1,6 @@
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <random>
 
 #include "libslic3r/Algorithm/LineSplit.hpp"
@@ -63,6 +66,157 @@ static std::unique_ptr<noise::module::Module> get_noise_module(const FuzzySkinCo
     } else {
         return std::make_unique<UniformNoise>();
     }
+}
+
+static std::unique_ptr<noise::module::Module> get_surface_noise_module(const FuzzySurfaceConfig& cfg)
+{
+    const double scale = std::max(cfg.noise_scale, EPSILON);
+    if (cfg.noise_type == NoiseType::Perlin) {
+        noise::module::Perlin module;
+        module.SetFrequency(1.0 / scale);
+        module.SetOctaveCount(cfg.noise_octaves);
+        module.SetPersistence(cfg.noise_persistence);
+        return std::make_unique<noise::module::Perlin>(module);
+    }
+    if (cfg.noise_type == NoiseType::Billow) {
+        noise::module::Billow module;
+        module.SetFrequency(1.0 / scale);
+        module.SetOctaveCount(cfg.noise_octaves);
+        module.SetPersistence(cfg.noise_persistence);
+        return std::make_unique<noise::module::Billow>(module);
+    }
+    if (cfg.noise_type == NoiseType::RidgedMulti) {
+        noise::module::RidgedMulti module;
+        module.SetFrequency(1.0 / scale);
+        module.SetOctaveCount(cfg.noise_octaves);
+        return std::make_unique<noise::module::RidgedMulti>(module);
+    }
+    if (cfg.noise_type == NoiseType::Voronoi) {
+        noise::module::Voronoi module;
+        module.SetFrequency(1.0 / scale);
+        module.SetDisplacement(1.0);
+        return std::make_unique<noise::module::Voronoi>(module);
+    }
+    return nullptr;
+}
+
+static uint64_t fuzzy_surface_hash(uint64_t value)
+{
+    value += 0x9e3779b97f4a7c15ULL;
+    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    value = (value ^ (value >> 27)) * 0x94d049bb133111ebULL;
+    return value ^ (value >> 31);
+}
+
+static double fuzzy_surface_lattice_value(int64_t x, int64_t y, int64_t z)
+{
+    uint64_t hash = fuzzy_surface_hash(static_cast<uint64_t>(x));
+    hash          = fuzzy_surface_hash(hash ^ static_cast<uint64_t>(y));
+    hash          = fuzzy_surface_hash(hash ^ static_cast<uint64_t>(z));
+    return static_cast<double>(hash >> 11) * (1.0 / 9007199254740991.0);
+}
+
+static double smoothstep(double value) { return value * value * (3.0 - 2.0 * value); }
+
+static double classic_surface_noise(const Vec2d& position, coordf_t slice_z, const FuzzySurfaceConfig& config)
+{
+    const double  cell_size = std::max(config.point_distance, EPSILON);
+    const double  x         = position.x() / cell_size;
+    const double  y         = position.y() / cell_size;
+    const int64_t x0        = static_cast<int64_t>(std::floor(x));
+    const int64_t y0        = static_cast<int64_t>(std::floor(y));
+    const int64_t z0        = static_cast<int64_t>(std::llround(slice_z / cell_size));
+    const double  tx        = smoothstep(x - static_cast<double>(x0));
+    const double  ty        = smoothstep(y - static_cast<double>(y0));
+    const double  a         = lerp(fuzzy_surface_lattice_value(x0, y0, z0), fuzzy_surface_lattice_value(x0 + 1, y0, z0), tx);
+    const double  b         = lerp(fuzzy_surface_lattice_value(x0, y0 + 1, z0), fuzzy_surface_lattice_value(x0 + 1, y0 + 1, z0), tx);
+    return lerp(a, b, ty);
+}
+
+static double fuzzy_surface_noise(const Vec2d&                 position,
+                                  coordf_t                     slice_z,
+                                  const FuzzySurfaceConfig&    config,
+                                  const noise::module::Module* module)
+{
+    if (config.noise_type == NoiseType::Classic)
+        return classic_surface_noise(position, slice_z, config);
+
+    if (module == nullptr)
+        return 0.5;
+
+    const double value = module->GetValue(position.x(), position.y(), slice_z);
+    return std::clamp(0.5 * (value + 1.0), 0.0, 1.0);
+}
+
+double fuzzy_surface_noise(const Vec2d& position, coordf_t slice_z, const FuzzySurfaceConfig& config)
+{
+    std::unique_ptr<noise::module::Module> module = get_surface_noise_module(config);
+    return fuzzy_surface_noise(position, slice_z, config, module.get());
+}
+
+double fuzzy_surface_displacement(double thickness, double support_top_z_distance, double minimum_support_distance, FuzzySurfaceType type)
+{
+    const double nonnegative_thickness = std::max(0.0, thickness);
+    if (type == FuzzySurfaceType::Top)
+        return nonnegative_thickness;
+    return std::min(nonnegative_thickness, std::max(0.0, support_top_z_distance - minimum_support_distance));
+}
+
+std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           polyline,
+                                                    coordf_t                  slice_z,
+                                                    FuzzySurfaceType          type,
+                                                    const FuzzySurfaceConfig& config)
+{
+    std::vector<FuzzySurfacePoint> result;
+    if (polyline.points.size() < 2 || config.point_distance <= EPSILON || config.displacement <= EPSILON)
+        return result;
+
+    Points points;
+    points.reserve(polyline.points.size());
+    points.emplace_back(polyline.points.front());
+    for (const Line& line : polyline.lines()) {
+        const double length = unscale<double>(line.length());
+        if (length <= EPSILON)
+            continue;
+
+        const size_t segments = std::max<size_t>(1, static_cast<size_t>(std::ceil(length / config.point_distance)));
+        const Vec2d  delta    = (line.b - line.a).cast<double>();
+        for (size_t segment = 1; segment <= segments; ++segment) {
+            Point point = line.b;
+            if (segment < segments)
+                point = line.a + (delta * (static_cast<double>(segment) / static_cast<double>(segments))).cast<coord_t>();
+            if (point != points.back())
+                points.emplace_back(point);
+        }
+    }
+
+    if (points.size() < 2)
+        return result;
+
+    std::unique_ptr<noise::module::Module> noise = get_surface_noise_module(config);
+    result.reserve(points.size());
+    for (size_t idx = 0; idx < points.size(); ++idx) {
+        const Vec2d position(unscale<double>(points[idx].x()), unscale<double>(points[idx].y()));
+        double      offset = fuzzy_surface_noise(position, slice_z, config, noise.get()) * config.displacement;
+        if (type == FuzzySurfaceType::Lower)
+            offset = -offset;
+        if (config.connect_boundaries && (idx == 0 || idx + 1 == points.size()))
+            offset = 0.0;
+
+        double extrusion_multiplier = 1.0;
+        if (config.compensate_extrusion && idx > 0) {
+            const double xy_length = unscale<double>((points[idx] - points[idx - 1]).cast<double>().norm());
+            if (xy_length > EPSILON) {
+                const double dz              = offset - result.back().z_offset;
+                const double geometric_ratio = std::hypot(xy_length, dz) / xy_length;
+                extrusion_multiplier = type == FuzzySurfaceType::Lower ? std::pow(geometric_ratio, config.bridge_compensation_multiplier) :
+                                                                         geometric_ratio;
+            }
+        }
+        result.push_back({points[idx], offset, extrusion_multiplier});
+    }
+
+    return result;
 }
 
 // Thanks Cura developers for this function.
