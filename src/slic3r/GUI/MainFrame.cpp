@@ -3051,6 +3051,8 @@ void MainFrame::init_menubar_as_editor()
             if (!m_thermal_pattern_calib_dlg)
                 m_thermal_pattern_calib_dlg = new Thermal_Pattern_Calibration_Dlg((wxWindow *) this, wxID_ANY, m_plater);
             m_thermal_pattern_calib_dlg->ShowModal();
+        }, "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
+
     append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("Clear filament"), _L("Clear filament pane calibration"),
         [this](wxCommandEvent&) {
             if (!m_clear_filament_calib_dlg)
