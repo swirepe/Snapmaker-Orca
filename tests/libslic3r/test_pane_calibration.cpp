@@ -4,7 +4,9 @@
 
 #include <array>
 #include <algorithm>
+#include <limits>
 #include <map>
+#include <stdexcept>
 
 using namespace Slic3r;
 
@@ -12,6 +14,33 @@ TEST_CASE("Pane calibration produces inclusive linear levels", "[PaneCalibration
 {
     const std::vector<double> values = pane_calibration_linear_values(260., 275., 4);
     REQUIRE(values == std::vector<double>{260., 265., 270., 275.});
+}
+
+TEST_CASE("Pane calibration rejects degenerate numeric factors", "[PaneCalibration]")
+{
+    REQUIRE_THROWS_AS(pane_calibration_linear_values(10., 10., 4), std::invalid_argument);
+    REQUIRE_THROWS_AS(pane_calibration_linear_values(0., std::numeric_limits<double>::infinity(), 4),
+                      std::invalid_argument);
+
+    PaneCalibrationConfig config = default_pane_calibration_config(PaneCalibrationTool::Ironing);
+    config.design = PaneCalibrationDesign::Linear;
+    for (PaneCalibrationFactorSetting &factor : config.factors) {
+        factor.enabled = factor.factor == PaneCalibrationFactor::IroningSpacing;
+        if (factor.enabled) {
+            factor.minimum = 0.;
+            factor.maximum = 0.2;
+        }
+    }
+    REQUIRE_THROWS_AS(build_pane_calibration_plan(config), std::invalid_argument);
+
+    for (PaneCalibrationFactorSetting &factor : config.factors) {
+        factor.enabled = factor.factor == PaneCalibrationFactor::IroningSpeed;
+        if (factor.enabled) {
+            factor.minimum = 0.;
+            factor.maximum = 20.;
+        }
+    }
+    REQUIRE_THROWS_AS(build_pane_calibration_plan(config), std::invalid_argument);
 }
 
 TEST_CASE("Pane calibration defaults select four factors", "[PaneCalibration]")
