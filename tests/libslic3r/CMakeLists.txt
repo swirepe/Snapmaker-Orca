@@ -11,6 +11,7 @@ add_executable(${_TEST_NAME}_tests
 	test_embedded_3mf_gcode.cpp
 	test_elephant_foot_compensation.cpp
 	test_geometry.cpp
+	test_fuzzy_surface.cpp
 	test_mixed_filament.cpp
 	test_mixed_filament_color_golden.cpp
 	test_non_traversable_travel.cpp

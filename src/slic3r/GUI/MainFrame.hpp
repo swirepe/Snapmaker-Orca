@@ -381,6 +381,7 @@ public:
     Input_Shaping_Freq_Test_Dlg* m_IS_freq_calib_dlg{ nullptr };
     Input_Shaping_Damp_Test_Dlg* m_IS_damp_calib_dlg{ nullptr };
     Junction_Deviation_Test_Dlg* m_junction_deviation_calib_dlg{ nullptr };
+    Fuzzy_Skin_Calibration_Dlg*  m_fuzzy_skin_calib_dlg{nullptr};
 
     // BBS. Replace title bar and menu bar with top bar.
     BBLTopbar*            m_topbar{ nullptr };

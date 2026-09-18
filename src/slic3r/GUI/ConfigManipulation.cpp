@@ -840,6 +840,18 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     toggle_line("fuzzy_skin_octaves", fuzzy_skin_noise_type != NoiseType::Classic && fuzzy_skin_noise_type != NoiseType::Voronoi);
     toggle_line("fuzzy_skin_persistence", fuzzy_skin_noise_type == NoiseType::Perlin || fuzzy_skin_noise_type == NoiseType::Billow);
 
+    const bool fuzzy_skin_enabled         = config->opt_enum<FuzzySkinType>("fuzzy_skin") != FuzzySkinType::None;
+    const bool fuzzy_top_enabled          = fuzzy_skin_enabled && config->opt_bool("fuzzy_skin_top_surface");
+    const bool fuzzy_lower_enabled        = fuzzy_skin_enabled && config->opt_bool("fuzzy_skin_lower_surface");
+    const bool fuzzy_compensation_enabled = fuzzy_skin_enabled && config->opt_bool("fuzzy_skin_compensate_extrusion");
+    for (const char* key :
+         {"fuzzy_skin_top_surface", "fuzzy_skin_lower_surface", "fuzzy_skin_connect_walls", "fuzzy_skin_compensate_extrusion"})
+        toggle_line(key, fuzzy_skin_enabled);
+    toggle_line("fuzzy_skin_top_surface_first_layer", fuzzy_top_enabled);
+    toggle_line("fuzzy_skin_ironing", fuzzy_top_enabled);
+    toggle_line("fuzzy_skin_min_support_distance", fuzzy_lower_enabled);
+    toggle_line("fuzzy_skin_bridge_compensation_multiplier", fuzzy_lower_enabled && fuzzy_compensation_enabled);
+
     bool have_arachne = config->opt_enum<PerimeterGeneratorType>("wall_generator") == PerimeterGeneratorType::Arachne;
     for (auto el : { "wall_transition_length", "wall_transition_filter_deviation", "wall_transition_angle",
         "min_feature_size", "min_length_factor", "min_bead_width", "wall_distribution_count", "initial_layer_min_bead_width"})

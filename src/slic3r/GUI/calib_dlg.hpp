@@ -12,13 +12,15 @@
 #include "Widgets/LabeledStaticBox.hpp"
 #include "Widgets/RadioGroup.hpp"
 #include "GUI_App.hpp"
+#include <wx/checkbox.h>
+#include <wx/choice.h>
 #include "wx/hyperlink.h"
 #include <wx/radiobox.h>
-#include <wx/choice.h>
-#include <wx/checkbox.h>
 #include <wx/scrolwin.h>
 #include <wx/spinctrl.h>
+#include <wx/textctrl.h>
 #include "libslic3r/calib.hpp"
+#include "libslic3r/FuzzySkinCalibration.hpp"
 
 namespace Slic3r { namespace GUI {
 
@@ -239,6 +241,30 @@ private:
     wxSpinCtrl                  *m_label_extruder {nullptr};
     wxStaticText                *m_preview {nullptr};
     Button                      *m_generate {nullptr};
+};
+
+class Fuzzy_Skin_Calibration_Dlg : public DPIDialog
+{
+public:
+    Fuzzy_Skin_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* plater);
+    void on_dpi_changed(const wxRect& suggested_rect) override;
+
+private:
+    FuzzySkinCalibrationConfig read_config() const;
+    void                       on_start(wxCommandEvent& event);
+    void                       on_mode_changed(wxCommandEvent& event);
+
+    Plater*     m_plater{nullptr};
+    wxChoice*   m_mode{nullptr};
+    wxChoice*   m_layout{nullptr};
+    wxTextCtrl* m_thickness_min{nullptr};
+    wxTextCtrl* m_thickness_max{nullptr};
+    wxTextCtrl* m_thickness_step{nullptr};
+    wxTextCtrl* m_distance_min{nullptr};
+    wxTextCtrl* m_distance_max{nullptr};
+    wxTextCtrl* m_distance_step{nullptr};
+    wxTextCtrl* m_coupon_size{nullptr};
+    wxCheckBox* m_labels{nullptr};
 };
 }} // namespace Slic3r::GUI
 #endif

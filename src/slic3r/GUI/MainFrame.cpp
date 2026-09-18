@@ -3147,6 +3147,15 @@ void MainFrame::init_menubar_as_editor()
         [this]() {return m_plater->is_view3D_shown();; }, this);
     m_topbar->GetCalibMenu()->AppendSubMenu(input_shaping_menu, _L("Input Shaping"));
 
+    append_menu_item(
+        m_topbar->GetCalibMenu(), wxID_ANY, _L("Fuzzy skin"), _L("Fuzzy skin calibration"),
+        [this](wxCommandEvent&) {
+            if (!m_fuzzy_skin_calib_dlg)
+                m_fuzzy_skin_calib_dlg = new Fuzzy_Skin_Calibration_Dlg((wxWindow*) this, wxID_ANY, m_plater);
+            m_fuzzy_skin_calib_dlg->ShowModal();
+        },
+        "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
+
     // VFA
     append_menu_item(m_topbar->GetCalibMenu(), wxID_ANY, _L("VFA"), _L("VFA"),
         [this](wxCommandEvent&) {
@@ -3289,6 +3298,15 @@ void MainFrame::init_menubar_as_editor()
         "", nullptr,
         [this]() {return m_plater->is_view3D_shown();; }, this);
     calib_menu->AppendSubMenu(input_shaping_menu, _L("Input Shaping"));
+
+    append_menu_item(
+        calib_menu, wxID_ANY, _L("Fuzzy skin"), _L("Fuzzy skin calibration"),
+        [this](wxCommandEvent&) {
+            if (!m_fuzzy_skin_calib_dlg)
+                m_fuzzy_skin_calib_dlg = new Fuzzy_Skin_Calibration_Dlg((wxWindow*) this, wxID_ANY, m_plater);
+            m_fuzzy_skin_calib_dlg->ShowModal();
+        },
+        "", nullptr, [this]() { return m_plater->is_view3D_shown(); }, this);
 
     // VFA
     append_menu_item(calib_menu, wxID_ANY, _L("VFA"), _L("VFA"),
