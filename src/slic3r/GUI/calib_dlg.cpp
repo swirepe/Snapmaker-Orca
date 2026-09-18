@@ -1440,8 +1440,9 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
     content->Add(warning, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(12));
     outer->Add(scroll, 1, wxEXPAND);
 
-    auto *buttons = new DialogButtons(this, {"Generate"});
+    auto *buttons = new DialogButtons(this, {"OK"});
     m_generate = buttons->GetOK();
+    m_generate->SetLabel(_L("Generate"));
     m_generate->Bind(wxEVT_BUTTON, &Pane_Calibration_Dlg::on_start, this);
     outer->Add(buttons, 0, wxEXPAND);
 
@@ -1600,7 +1601,8 @@ void Pane_Calibration_Dlg::on_start(wxCommandEvent &)
     const auto *temperature_high = full_config.opt<ConfigOptionInts>("nozzle_temperature_range_high");
     for (const PaneCalibrationFactorSetting &factor : config.factors) {
         if (!factor.enabled || factor.factor != PaneCalibrationFactor::NozzleTemperature ||
-            temperature_low == nullptr || temperature_high == nullptr)
+            temperature_low == nullptr || temperature_low->values.empty() ||
+            temperature_high == nullptr || temperature_high->values.empty())
             continue;
         const size_t extruder = size_t(std::max(config.pane_extruder, 1) - 1);
         const int low = temperature_low->get_at(extruder);
