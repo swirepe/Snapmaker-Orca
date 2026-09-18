@@ -9,6 +9,7 @@
 #include "libslic3r/FilamentColorLibrary.hpp" // kFullSpectrumSlotCount (recommended slot write-back)
 #include "libslic3r/Config.hpp"
 #include "libslic3r/MixedFilament.hpp"
+#include "libslic3r/ThermalSurfacePatterning.hpp"
 #include "libslic3r/filament_mixer.h"
 #include "common_func/common_func.hpp"
 #include "slic3r/Utils/SnapLogClient.hpp"
@@ -18665,17 +18666,19 @@ void Plater::calib_temp(const Calib_Params& params) {
     p->background_process.fff_print()->set_calib_params(params);
 }
 
-void Plater::calib_thermal_pattern(const Calib_Params &params)
+bool Plater::calib_thermal_pattern(const Calib_Params &params)
 {
-    new_project(false, false, _L("Thermal surface patterning calibration"));
+    if (params.mode != CalibMode::Calib_Thermal_Pattern ||
+        !thermal_pattern_calibration_values_valid(params.start, params.step, params.thermal_max_level,
+                                                  params.thermal_band_height) ||
+        new_project(false, false, _L("Thermal surface patterning calibration")) == wxID_CANCEL)
+        return false;
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
-    if (params.mode != CalibMode::Calib_Thermal_Pattern)
-        return;
 
     // A narrow tower exposes long walls while the stepped cubes expose a top surface at every level.
     sidebar().obj_list()->load_generic_subobject("Cube", ModelVolumeType::INVALID);
     if (model().objects.empty())
-        return;
+        return false;
 
     ModelObject *tower = model().objects.front();
     std::vector<ModelObject *> swatches;
@@ -18727,6 +18730,7 @@ void Plater::calib_thermal_pattern(const Calib_Params &params)
     wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
 
     p->background_process.fff_print()->set_calib_params(params);
+    return true;
 }
 
 void Plater::calib_max_vol_speed(const Calib_Params& params)

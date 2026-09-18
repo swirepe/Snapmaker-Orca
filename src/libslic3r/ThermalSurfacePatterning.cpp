@@ -27,6 +27,14 @@ std::uint64_t splitmix64(std::uint64_t value)
 
 } // namespace
 
+bool thermal_pattern_calibration_values_valid(double base_temperature, double temperature_step,
+                                              int max_level, double band_height)
+{
+    return std::isfinite(base_temperature) && std::isfinite(temperature_step) && std::isfinite(band_height) &&
+           base_temperature >= 1.0 && temperature_step > 0.0 && max_level >= 1 && max_level <= 20 && band_height >= 0.4 &&
+           std::isfinite(base_temperature + temperature_step * max_level);
+}
+
 std::size_t ThermalPatternSettings::hash() const
 {
     std::size_t out = 0;

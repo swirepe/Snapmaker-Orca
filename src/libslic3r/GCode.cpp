@@ -3005,9 +3005,12 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
                     file.write("M1003 S0\n");
                 }
             }
-            if (m_wipe_tower)
+            if (m_wipe_tower) {
+                // The final purge is not a patterned surface and must not inherit the last elevated target.
+                file.write(this->thermal_pattern_restore_all());
                 // Purge the extruder, pull out the active filament.
                 file.write(m_wipe_tower->finalize(*this));
+            }
         }
     }
     file.write(this->thermal_pattern_restore_all());

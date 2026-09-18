@@ -2,6 +2,7 @@
 #include "GUI_App.hpp"
 #include "MsgDialog.hpp"
 #include "I18N.hpp"
+#include "libslic3r/ThermalSurfacePatterning.hpp"
 #include <wx/dcgraph.h>
 #include "MainFrame.hpp"
 #include "Tab.hpp"
@@ -517,9 +518,14 @@ bool Thermal_Pattern_Calibration_Dlg::read_params(Calib_Params &params, bool war
                  m_ti_step->GetTextCtrl()->GetValue().ToDouble(&params.step) &&
                  m_ti_band_height->GetTextCtrl()->GetValue().ToDouble(&params.thermal_band_height) &&
                  m_ti_levels->GetTextCtrl()->GetValue().ToLong(&levels);
-    if (!valid || params.start < 0. || params.step <= 0. || params.thermal_band_height < 0.4 || levels < 1 || levels > 20) {
-        MessageDialog(this, _L("Enter a positive temperature step, 1-20 levels, and a band height of at least 0.4 mm."),
-                      wxEmptyString, wxICON_WARNING | wxOK).ShowModal();
+    if (!valid || levels < 1 || levels > 20 ||
+        !thermal_pattern_calibration_values_valid(params.start, params.step, static_cast<int>(levels),
+                                                  params.thermal_band_height)) {
+        MessageDialog(this,
+                      _L("Enter a base temperature of at least 1°C, a positive temperature step, 1-20 levels, and a band height of at least "
+                         "0.4 mm."),
+                      wxEmptyString, wxICON_WARNING | wxOK)
+            .ShowModal();
         return false;
     }
 
@@ -558,8 +564,8 @@ void Thermal_Pattern_Calibration_Dlg::on_generate(wxCommandEvent &)
     Calib_Params params;
     if (!read_params(params, true))
         return;
-    m_plater->calib_thermal_pattern(params);
-    EndModal(wxID_OK);
+    if (m_plater->calib_thermal_pattern(params))
+        EndModal(wxID_OK);
 }
 
 void Thermal_Pattern_Calibration_Dlg::on_apply(wxCommandEvent &)
