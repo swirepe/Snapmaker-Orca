@@ -188,6 +188,7 @@ TEST_CASE("Non-traversable travel uses transformed instances, height, and active
         CHECK(above.points.size() == 2);
 
         CHECK_THROWS_AS(planner.validate_vertical(center_point, local_center.z() - 10., local_center.z() + 10., 0), SlicingError);
+        CHECK_THROWS_AS(planner.validate_vertical(center_point, local_center.z() - 1., local_center.z() + 1., 0), SlicingError);
         const Point near_quantized_edge = Point::new_scale(center.x() + 1.0005, center.y());
         CHECK_THROWS_AS(planner.validate_vertical(near_quantized_edge, local_center.z() - 10., local_center.z() + 10., 0),
                         SlicingError);
