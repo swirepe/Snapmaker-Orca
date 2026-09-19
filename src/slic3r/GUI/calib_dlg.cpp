@@ -1145,7 +1145,7 @@ bool pane_factor_is_categorical(PaneCalibrationFactor factor)
 
 Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plater *plater, PaneCalibrationTool tool)
     : DPIDialog(parent, id,
-                tool == PaneCalibrationTool::ClearFilament ? _L("Clear filament calibration") : _L("Ironing calibration"),
+                tool == PaneCalibrationTool::ClearFilament ? _L("Transparent filament calibration") : _L("Ironing calibration"),
                 wxDefaultPosition, parent->FromDIP(wxSize(760, 760)), wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER),
       m_plater(plater), m_tool(tool)
 {
@@ -1346,7 +1346,10 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
     m_mouse_ears->SetValue(load_integer("mouse_ears", 0) != 0);
     m_labels->SetValue(load_integer("labels", 0) != 0);
     m_glyph_height->SetValue(load_double("glyph_height", m_glyph_height->GetValue()));
-    m_label_relief->SetValue(load_double("label_relief", m_label_relief->GetValue()));
+    double label_relief = load_double("label_relief", m_label_relief->GetValue());
+    if (wxGetApp().app_config->get(section, "label_relief_version").empty() && label_relief == 2.)
+        label_relief = defaults.label_relief;
+    m_label_relief->SetValue(label_relief);
     m_pane_extruder->SetValue(load_integer("pane_extruder", 1));
     m_label_extruder->SetValue(load_integer("label_extruder", 1));
 
@@ -1416,9 +1419,19 @@ void Pane_Calibration_Dlg::refresh_preview()
     m_label_relief->Enable(m_labels->GetValue());
     m_label_extruder->Enable(m_labels->GetValue());
     try {
-        const PaneCalibrationPlan plan = build_pane_calibration_plan(read_config());
-        m_preview->SetLabel(wxString::Format(_L("%s · %zu panes · row-major sequential order"),
-                                             from_u8(plan.array_name), plan.rows.size()));
+        const PaneCalibrationConfig config = read_config();
+        const PaneCalibrationPlan plan = build_pane_calibration_plan(config);
+        const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+        const PaneCalibrationPlacementConstraints placement = pane_calibration_placement_constraints(
+            config, plan.rows.size(), full_config.opt_float("nozzle_height"),
+            full_config.opt_float("extruder_clearance_radius"),
+            full_config.opt_float("extruder_clearance_height_to_rod"),
+            full_config.opt_float("extruder_clearance_height_to_lid"));
+        const wxString spacing = placement.requires_toolhead_clearance ?
+            wxString::Format(_L("%.1f mm printer-clearance gap"), placement.effective_gap) :
+            wxString::Format(_L("%.1f mm gap; short-object mode"), placement.effective_gap);
+        m_preview->SetLabel(wxString::Format(_L("%s · %zu panes · %s · row-major sequential order"),
+                                             from_u8(plan.array_name), plan.rows.size(), spacing));
         m_preview->SetForegroundColour(GetForegroundColour());
         m_generate->Enable(true);
     } catch (const std::exception &error) {
@@ -1450,6 +1463,7 @@ void Pane_Calibration_Dlg::on_start(wxCommandEvent &)
     wxGetApp().app_config->set(section, "labels", config.labels ? "1" : "0");
     wxGetApp().app_config->set(section, "glyph_height", std::to_string(config.label_glyph_height));
     wxGetApp().app_config->set(section, "label_relief", std::to_string(config.label_relief));
+    wxGetApp().app_config->set(section, "label_relief_version", "2");
     wxGetApp().app_config->set(section, "pane_extruder", std::to_string(config.pane_extruder));
     wxGetApp().app_config->set(section, "label_extruder", std::to_string(config.label_extruder));
     const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();

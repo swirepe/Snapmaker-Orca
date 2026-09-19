@@ -326,6 +326,35 @@ PaneCalibrationPlan build_pane_calibration_plan(const PaneCalibrationConfig &con
     return plan;
 }
 
+PaneCalibrationPlacementConstraints pane_calibration_placement_constraints(
+    const PaneCalibrationConfig &config, size_t object_count, double nozzle_height, double clearance_radius,
+    double clearance_height_to_rod, double clearance_height_to_lid)
+{
+    const double object_height = config.pane_height + (config.labels ? config.label_relief : 0.);
+    if (!std::isfinite(object_height) || object_height <= 0. || !std::isfinite(config.pane_gap) || config.pane_gap < 0.)
+        throw std::invalid_argument("Pane placement dimensions must be finite and nonnegative");
+    if (!std::isfinite(nozzle_height) || nozzle_height <= 0.)
+        throw std::invalid_argument("The active printer does not define a usable nozzle height");
+
+    PaneCalibrationPlacementConstraints constraints;
+    constraints.object_height = object_height;
+    constraints.effective_gap = config.pane_gap;
+    constraints.requires_toolhead_clearance = object_height >= nozzle_height;
+    if (!constraints.requires_toolhead_clearance)
+        return constraints;
+
+    if (!std::isfinite(clearance_radius) || clearance_radius <= 0. ||
+        !std::isfinite(clearance_height_to_rod) || clearance_height_to_rod <= 0. ||
+        !std::isfinite(clearance_height_to_lid) || clearance_height_to_lid <= 0.)
+        throw std::invalid_argument("The active printer does not define usable sequential-print clearances");
+    if (object_count > 1 && object_height > clearance_height_to_lid)
+        throw std::invalid_argument("Pane and label height exceeds the printer's sequential-print lid clearance");
+
+    constraints.effective_gap = std::max(config.pane_gap, clearance_radius);
+    constraints.one_per_row = object_count > 1 && object_height > clearance_height_to_rod;
+    return constraints;
+}
+
 std::string pane_calibration_factor_key(PaneCalibrationFactor factor)
 {
     switch (factor) {
@@ -404,10 +433,9 @@ std::vector<std::string> pane_calibration_label_lines(const PaneCalibrationRow &
                                   pane_calibration_format_value(entry.factor, entry.value, levels);
         if (token.size() > maximum_characters_per_line)
             throw std::invalid_argument("A calibration label token does not fit the pane");
-        if (lines.empty() || lines.back().size() + 1 + token.size() > maximum_characters_per_line)
-            lines.emplace_back(token);
-        else
-            lines.back() += " " + token;
+        // Keep each factor on its own baseline. Combining multiple tokens on
+        // one line made the small embossed labels difficult to distinguish.
+        lines.emplace_back(token);
     }
     return lines;
 }
@@ -419,6 +447,7 @@ PaneCalibrationConfig default_pane_calibration_config(PaneCalibrationTool tool)
     config.design      = PaneCalibrationDesign::Taguchi;
     config.taguchi_levels = 4;
     config.pane_height = tool == PaneCalibrationTool::ClearFilament ? 1. : 2.;
+    config.label_relief = 0.5;
 
     config.factors = {
         {PaneCalibrationFactor::NozzleTemperature, tool == PaneCalibrationTool::ClearFilament, 260., 275., 4},
