@@ -8,8 +8,9 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-for arg in "$@"; do
-    if [[ "$arg" == "-x" ]]; then
+OPTIND=1
+while getopts ":dpa:snt:xbc:1h" option; do
+    if [[ "$option" == "x" ]]; then
         echo "Error: -x selects Ninja Multi-Config and is not supported by the no-Xcode wrapper." >&2
         exit 2
     fi
