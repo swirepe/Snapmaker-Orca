@@ -21,6 +21,11 @@
 
 namespace Slic3r {
 
+bool ironing_every_other_layer_selected(size_t zero_based_layer_id, bool is_top_layer)
+{
+	return ((zero_based_layer_id + 1) % 2) == 0 || is_top_layer;
+}
+
 // Calculate infill rotation angle (in radians) for a given layer from a rotation template.
 // Grammar subset handled (rotation only):
 //   [±]α[*Z or !][joint][-][N|B|T][length][* or !]
@@ -1529,7 +1534,7 @@ void Layer::make_ironing()
 			const PrintRegionConfig &config = layerm->region().config();
 			const bool alternate_layer = config.ironing_type == IroningType::EveryOtherLayer;
 			const bool alternate_layer_selected = alternate_layer &&
-			    ((((this->id() + 1) % 2) == 0) || layerm->layer()->upper_layer == nullptr);
+			    ironing_every_other_layer_selected(this->id(), layerm->layer()->upper_layer == nullptr);
 			if ((config.ironing_type != IroningType::NoIroning || this->ironing_painting_active) &&
 			    (config.ironing_type == IroningType::AllSolid || alternate_layer_selected ||
 			        this->ironing_painting_active ||
@@ -1601,7 +1606,7 @@ void Layer::make_ironing()
 				const PrintRegionConfig  &region_config   = ironing_params.layerm->region().config();
 				const bool alternate_layer = region_config.ironing_type == IroningType::EveryOtherLayer;
 				bool iron_everything = region_config.ironing_type == IroningType::AllSolid || this->ironing_painting_active ||
-				                       (alternate_layer && (((this->id() + 1) % 2) == 0));
+				                       (alternate_layer && ironing_every_other_layer_selected(this->id(), false));
 				bool					  iron_completely = iron_everything;
 				if (iron_everything) {
 					// Check whether there is any non-solid hole in the regions.

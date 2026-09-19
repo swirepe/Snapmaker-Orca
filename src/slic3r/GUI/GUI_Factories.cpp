@@ -142,7 +142,11 @@ std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::OBJECT_C
 
 std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::PART_CATEGORY_SETTINGS=
 {
-    { L("Quality"), {{"ironing_type", "",8},{"ironing_flow", "",9},{"ironing_spacing", "",10},{"ironing_inset", "", 11},{"bridge_flow", "",11},{"make_overhang_printable", "",11},{"bridge_density", "", 1}
+    { L("Quality"), {{"ironing_type", "",8},{"ironing_pattern", "",9},{"ironing_flow", "",9},{"ironing_spacing", "",10},
+                    {"ironing_inset", "",11},{"ironing_angle", "",12},{"ironing_speed", "",13},
+                    {"nozzle_temperature_override", "",14},{"fan_speed_override", "",15},{"wall_fan_speed_override", "",16},
+                    {"ironing_fan_speed_override", "",17},{"auxiliary_fan_speed_override", "",18},
+                    {"bridge_flow", "",11},{"make_overhang_printable", "",11},{"bridge_density", "",1}
                     }},
     { L("Strength"), {{"wall_loops", "",1},{"top_shell_layers", L("Top Solid Layers"),1},{"top_shell_thickness", L("Top Minimum Shell Thickness"),1},{"top_surface_density", L("Top Surface Density"),1},
                     {"bottom_shell_layers", L("Bottom Solid Layers"),1}, {"bottom_shell_thickness", L("Bottom Minimum Shell Thickness"),1},{"bottom_surface_density", L("Bottom Surface Density"),1},

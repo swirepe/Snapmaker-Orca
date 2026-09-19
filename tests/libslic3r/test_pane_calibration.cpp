@@ -1,6 +1,13 @@
 #include <catch2/catch_test_macros.hpp>
 
+#include "libslic3r/Fill/Fill.hpp"
+#include "libslic3r/Format/3mf.hpp"
+#include "libslic3r/Model.hpp"
 #include "libslic3r/PaneCalibration.hpp"
+#include "libslic3r/Preset.hpp"
+#include "libslic3r/PrintConfig.hpp"
+
+#include <boost/filesystem/operations.hpp>
 
 #include <array>
 #include <algorithm>
@@ -129,6 +136,15 @@ TEST_CASE("Pane calibration maps categorical values by level", "[PaneCalibration
     }
 }
 
+TEST_CASE("Every-other-layer ironing alternates and always includes the top layer", "[PaneCalibration][Ironing]")
+{
+    REQUIRE_FALSE(ironing_every_other_layer_selected(0, false));
+    REQUIRE(ironing_every_other_layer_selected(1, false));
+    REQUIRE_FALSE(ironing_every_other_layer_selected(2, false));
+    REQUIRE(ironing_every_other_layer_selected(3, false));
+    REQUIRE(ironing_every_other_layer_selected(4, true));
+}
+
 TEST_CASE("Categorical factors keep their own level count", "[PaneCalibration]")
 {
     PaneCalibrationConfig config = default_pane_calibration_config(PaneCalibrationTool::Ironing);
@@ -156,4 +172,69 @@ TEST_CASE("Pane calibration creates body ears and editable label meshes", "[Pane
     const TriangleMesh label = make_pane_calibration_label({"T=270", "FR=1.04"}, 2., 0.5, 30., 30.);
     REQUIRE_FALSE(label.empty());
     REQUIRE(std::abs(label.bounding_box().max.z() - 0.5) < 1e-6);
+}
+
+TEST_CASE("Regional process overrides have safe defaults and survive project storage", "[PaneCalibration][3mf]")
+{
+    const std::vector<std::string> override_keys {
+        "nozzle_temperature_override",
+        "fan_speed_override",
+        "wall_fan_speed_override",
+        "ironing_fan_speed_override",
+        "auxiliary_fan_speed_override",
+    };
+    for (const std::string &key : override_keys) {
+        REQUIRE(print_config_def.get(key) != nullptr);
+        REQUIRE(std::find(Preset::print_options().begin(), Preset::print_options().end(), key) != Preset::print_options().end());
+    }
+
+    const PrintRegionConfig defaults;
+    REQUIRE(defaults.nozzle_temperature_override.value == 0);
+    REQUIRE(defaults.fan_speed_override.value == -1);
+    REQUIRE(defaults.wall_fan_speed_override.value == -1);
+    REQUIRE(defaults.ironing_fan_speed_override.value == -1);
+    REQUIRE(defaults.auxiliary_fan_speed_override.value == -1);
+
+    Model        source;
+    ModelObject *object = source.add_object();
+    ModelVolume *volume = object->add_volume(make_cube(20., 20., 2.));
+    volume->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::EveryOtherLayer));
+    volume->config.set_key_value("ironing_pattern", new ConfigOptionEnum<InfillPattern>(InfillPattern::ipConcentric));
+    volume->config.set_key_value("ironing_flow", new ConfigOptionPercent(18.));
+    volume->config.set_key_value("ironing_spacing", new ConfigOptionFloat(0.17));
+    volume->config.set_key_value("ironing_inset", new ConfigOptionFloat(0.35));
+    volume->config.set_key_value("ironing_angle", new ConfigOptionFloat(37.));
+    volume->config.set_key_value("ironing_speed", new ConfigOptionFloats{23.});
+    volume->config.set_key_value("nozzle_temperature_override", new ConfigOptionInt(275));
+    volume->config.set_key_value("fan_speed_override", new ConfigOptionInt(60));
+    volume->config.set_key_value("wall_fan_speed_override", new ConfigOptionInt(40));
+    volume->config.set_key_value("ironing_fan_speed_override", new ConfigOptionInt(25));
+    volume->config.set_key_value("auxiliary_fan_speed_override", new ConfigOptionInt(35));
+    object->add_instance();
+
+    const boost::filesystem::path path = boost::filesystem::temp_directory_path() /
+                                         boost::filesystem::unique_path("pane-region-config-%%%%-%%%%.3mf");
+    REQUIRE(store_3mf(path.string().c_str(), &source, nullptr, false));
+
+    Model                     restored;
+    DynamicPrintConfig        config;
+    ConfigSubstitutionContext substitutions{ForwardCompatibilitySubstitutionRule::Disable};
+    REQUIRE(load_3mf(path.string().c_str(), config, substitutions, &restored, false));
+    boost::filesystem::remove(path);
+
+    REQUIRE(restored.objects.size() == 1);
+    REQUIRE(restored.objects.front()->volumes.size() == 1);
+    const ModelConfig &restored_config = restored.objects.front()->volumes.front()->config;
+    REQUIRE(restored_config.get().opt_enum<IroningType>("ironing_type") == IroningType::EveryOtherLayer);
+    REQUIRE(restored_config.get().opt_enum<InfillPattern>("ironing_pattern") == InfillPattern::ipConcentric);
+    REQUIRE(restored_config.opt_float("ironing_flow") == 18.);
+    REQUIRE(restored_config.opt_float("ironing_spacing") == 0.17);
+    REQUIRE(restored_config.opt_float("ironing_inset") == 0.35);
+    REQUIRE(restored_config.opt_float("ironing_angle") == 37.);
+    REQUIRE(restored_config.get().opt_float("ironing_speed", 0) == 23.);
+    REQUIRE(restored_config.opt_int("nozzle_temperature_override") == 275);
+    REQUIRE(restored_config.opt_int("fan_speed_override") == 60);
+    REQUIRE(restored_config.opt_int("wall_fan_speed_override") == 40);
+    REQUIRE(restored_config.opt_int("ironing_fan_speed_override") == 25);
+    REQUIRE(restored_config.opt_int("auxiliary_fan_speed_override") == 35);
 }

@@ -305,6 +305,10 @@ public:
     };
 
 private:
+    // Focused unit-test harness for regional process state transitions. Keeping
+    // this friend avoids exposing override bookkeeping as public slicer API.
+    friend class GCodeRegionProcessOverridesTest;
+
     class GCodeOutputStream {
     public:
         GCodeOutputStream(FILE *f, GCodeProcessor &processor) : f(f), m_processor(processor) {}

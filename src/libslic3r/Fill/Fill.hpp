@@ -15,6 +15,10 @@ namespace Slic3r {
 class ExtrusionEntityCollection;
 class LayerRegion;
 
+// Every-other-layer ironing uses one-based even layers, while always selecting
+// the final top layer so the finished part is not left with an unironed roof.
+bool ironing_every_other_layer_selected(size_t zero_based_layer_id, bool is_top_layer);
+
 // An interface class to Perl, aggregating an instance of a Fill and a FillData.
 class Filler
 {
