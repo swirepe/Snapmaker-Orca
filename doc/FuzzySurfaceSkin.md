@@ -46,6 +46,7 @@ All new options are process/region options so object, volume, height-range, and 
 | `fuzzy_skin_top_surface` | Fuzzy skin on top surfaces | Boolean | Off | Applies positive Z fuzz to `erTopSolidInfill`. |
 | `fuzzy_skin_lower_surface` | Fuzzy skin on supported lower surfaces | Boolean | Off | Applies negative Z fuzz to eligible external bottom bridges. |
 | `fuzzy_skin_top_surface_first_layer` | Apply top-surface fuzzy skin to first layer | Boolean | Off | Separately allows top-surface Z fuzz on layer zero. It does not alter the existing wall-first-layer option. |
+| `fuzzy_skin_bed_surface` | Fuzzy skin on bed-facing surfaces | Boolean | Off | Applies positive-Z texture to `erBottomSurface` on the first layer, capped at 25% of initial layer height. |
 | `fuzzy_skin_connect_walls` | Connect fuzzy surface boundaries | Boolean | On | Keeps the first and last point of each affected extrusion path at nominal Z. |
 | `fuzzy_skin_compensate_extrusion` | Compensate fuzzy-surface extrusion | Boolean | On | Scales segment extrusion for three-dimensional path length. |
 | `fuzzy_skin_bridge_compensation_multiplier` | Lower-surface extrusion compensation | Float, 0–10 | 3.0 | Exponent applied to the geometric compensation ratio for supported lower surfaces, matching Fuzzyficator's bridge treatment. |
@@ -58,7 +59,7 @@ Existing settings retain these meanings:
 - `fuzzy_skin_thickness` is the maximum absolute horizontal displacement.
 - `fuzzy_skin_point_distance` is the target maximum XY distance between generated fuzzy samples.
 - `fuzzy_skin_noise_type`, `fuzzy_skin_scale`, `fuzzy_skin_octaves`, and `fuzzy_skin_persistence` define the height field.
-- `fuzzy_skin_first_layer` continues to control wall fuzz only. It is intentionally independent of `fuzzy_skin_top_surface_first_layer`, allowing fuzzy walls to reach the bed while bed-facing surfaces stay smooth.
+- `fuzzy_skin_first_layer` continues to control wall fuzz only. It is independent of both top-first-layer and bed-facing texture.
 - `fuzzy_skin_mode` continues to control wall generation. Horizontal fuzz always uses Z displacement when enabled, including when wall mode is Extrusion or Combined.
 
 Profiles without the new keys load the defaults and produce the same G-code they did before this feature.
@@ -66,6 +67,7 @@ Profiles without the new keys load the defaults and produce the same G-code they
 ## UI behavior
 
 The new controls appear in the existing **Others → Fuzzy Skin** group after the current wall/noise controls.
+The same complete group is available in the object and part quick-settings menu for per-object, modifier, and painted-region workflows.
 
 - Horizontal controls are enabled only when fuzzy skin is not `None`.
 - First-layer and fuzzy-ironing controls are enabled only when top-surface fuzz is on.
@@ -83,6 +85,10 @@ A path is fuzzed when all of the following are true:
 2. `fuzzy_skin_top_surface` is on.
 3. The path role is `erTopSolidInfill`.
 4. The layer is not layer zero, unless `fuzzy_skin_top_surface_first_layer` is on.
+
+### Bed-facing surfaces
+
+A path receives positive-Z bed texture only when it is `erBottomSurface` on the first layer and `fuzzy_skin_bed_surface` is on. This is a separate opt-in from top-surface and wall first-layer controls. Positive displacement changes first-layer squish while guaranteeing that generated moves never go below the nominal first-layer height. Its displacement is capped at 25% of the initial layer height so a large general fuzzy-thickness value cannot create peaks near the following layer.
 
 This applies to both Classic- and Arachne-generated objects because the decision is based on the final extrusion role and active region configuration.
 
@@ -177,8 +183,8 @@ Add **Calibration → Fuzzy skin** to both menu variants. Opening it shows a dia
 
 - Test mode: Texture matrix, Ironing comparison, or Supported underside.
 - Layout: Connected panel or Breakaway coupons where applicable.
-- Thickness start/end/step, default `0.10 / 0.40 / 0.10 mm`.
-- Point-distance start/end/step, default `0.20 / 0.80 / 0.20 mm`.
+- Thickness start/end/step, default `0.05 / 0.50 / 0.15 mm`.
+- Point-distance start/end/step, default `0.20 / 2.00 / 0.60 mm`.
 
 Inputs must be finite and positive, starts must not exceed ends, and steps must produce at least one value. Each axis is limited to eight values and the total matrix to 64 parameter combinations. Before replacing the current project, the dialog estimates the artifact footprint against the active printable area and asks the user to reduce the range if it cannot fit.
 
@@ -190,6 +196,7 @@ Inputs must be finite and positive, starts must not exceed ends, and steps must 
 - The connected base has smooth embossed column headers for thickness and row headers for point distance.
 - Breakaway layout creates individually removable coupons with abbreviated smooth embossed labels such as `T=.20 D=.40`.
 - Calibration geometry uses per-volume/process overrides so every cell receives its requested thickness and distance while base, labels, and tabs have fuzzy skin disabled.
+- A circular first-layer parameter modifier under every cell enables only bed-facing fuzz, allowing the printed underside to be compared without adding coplanar model geometry. The matrix thickness values are mapped proportionally into the 25%-of-first-layer safety cap, so every circle remains distinct without saturating at the cap.
 
 ### Ironing comparison
 
@@ -201,6 +208,7 @@ Inputs must be finite and positive, starts must not exceed ends, and steps must 
 ### Supported underside
 
 - Generates labeled breakaway bridge-canopy samples with support enabled and ordinary external bridge roles. Connected layout is unavailable because a shared base would obstruct the tested underside.
+- The disconnected canopies are volumes of one model object, so the slicer produces one coherent support field instead of reporting conflicts between independently generated support paths.
 - Each canopy receives its own thickness/point-distance override and enables supported-lower fuzz.
 - Labels are placed on smooth, upward-facing frame surfaces, never on the fuzzy underside.
 

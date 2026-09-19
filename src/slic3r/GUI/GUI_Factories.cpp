@@ -2,6 +2,7 @@
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Feature/FuzzySkin/FuzzySkin.hpp"
 
 #include "GUI_Factories.hpp"
 #include "GUI_ObjectList.hpp"
@@ -115,6 +116,16 @@ static SettingsFactory::Bundle FREQ_SETTINGS_BUNDLE_SLA =
     // BBS: remove SLA freq settings
 };
 
+static std::vector<SimpleSettingData> fuzzy_skin_quick_settings()
+{
+    std::vector<SimpleSettingData> settings;
+    settings.reserve(Feature::FuzzySkin::config_option_keys.size());
+    int priority = 1;
+    for (const char* key : Feature::FuzzySkin::config_option_keys)
+        settings.push_back({key, "", priority++});
+    return settings;
+}
+
 //BBS: add setting data for table
 std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::OBJECT_CATEGORY_SETTINGS=
 {
@@ -168,7 +179,8 @@ std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::PART_CAT
                     {"thermal_pattern_top_group_max_lines", "",25},{"thermal_pattern_heat_tau", "",26},{"thermal_pattern_cool_tau", "",27},{"thermal_pattern_tolerance", "",28},
                     {"thermal_pattern_surface_heat_credit", "",29},{"thermal_pattern_min_base_dwell", "",30},{"thermal_pattern_max_preheat", "",31},{"thermal_pattern_protect_risky_features", "",32},
                     {"thermal_pattern_internal_policy", "",33},{"thermal_pattern_speed_assist", "",34},{"thermal_pattern_speed_max_factor", "",35},{"thermal_pattern_speed_min", "",36}
-                    }}
+                    }},
+    { L("Fuzzy Skin"), fuzzy_skin_quick_settings() }
 };
 
 std::vector<std::string> SettingsFactory::get_options(const bool is_part)

@@ -19432,6 +19432,8 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
 
     const Vec2d         bed_center   = bed_extent.center();
     const Vec3d         plate_origin = get_partplate_list().get_curr_plate()->get_origin();
+    const double        first_layer_height = std::max(0.01, full_config.opt_float("initial_layer_print_height"));
+    const FuzzySkinCalibrationBedPatch bed_patch = fuzzy_skin_calibration_bed_patch(config);
     std::vector<size_t> object_indices;
 
     auto apply_common = [](ModelConfig& target) {
@@ -19452,6 +19454,7 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
         target.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(cell.distance));
         target.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(config.mode != FuzzySkinCalibrationMode::SupportedUnderside));
         target.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(config.mode == FuzzySkinCalibrationMode::SupportedUnderside));
+        target.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(false));
         target.set_key_value("fuzzy_skin_connect_walls", new ConfigOptionBool(true));
         target.set_key_value("fuzzy_skin_compensate_extrusion", new ConfigOptionBool(true));
         target.set_key_value("fuzzy_skin_min_support_distance", new ConfigOptionFloat(0.05));
@@ -19459,10 +19462,32 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
         target.set_key_value("ironing_type",
                              new ConfigOptionEnum<IroningType>(cell.fuzzy_ironing ? IroningType::TopSurfaces : IroningType::NoIroning));
     };
+    auto add_bed_patch = [&config, &bed_patch, first_layer_height](ModelObject& object, const FuzzySkinCalibrationCell& cell, double x,
+                                                                  double y) {
+        ModelVolume* patch = object.add_volume(make_fuzzy_skin_calibration_bed_patch(bed_patch.radius, first_layer_height),
+                                               ModelVolumeType::PARAMETER_MODIFIER, false);
+        patch->name = "Bed-facing fuzzy patch " + cell.label;
+        patch->set_offset(Vec3d(x + bed_patch.center_x, y + bed_patch.center_y, 0.0));
+        patch->config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::External));
+        patch->config.set_key_value("fuzzy_skin_thickness",
+                                    new ConfigOptionFloat(fuzzy_skin_calibration_bed_thickness(config, cell.thickness,
+                                                                                              first_layer_height)));
+        patch->config.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(cell.distance));
+        patch->config.set_key_value("fuzzy_skin_first_layer", new ConfigOptionBool(false));
+        patch->config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(false));
+        patch->config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
+        patch->config.set_key_value("fuzzy_skin_top_surface_first_layer", new ConfigOptionBool(false));
+        patch->config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(true));
+        patch->config.set_key_value("fuzzy_skin_connect_walls", new ConfigOptionBool(true));
+        patch->config.set_key_value("fuzzy_skin_compensate_extrusion", new ConfigOptionBool(true));
+        patch->config.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(false));
+        patch->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+    };
     auto smooth_label = [](ModelVolume& volume) {
         volume.config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
         volume.config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(false));
         volume.config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
+        volume.config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(false));
         volume.config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
     };
     auto register_object = [this, &object_indices](ModelObject& object) {
@@ -19495,6 +19520,7 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
                 coupon->name        = cell.label;
                 coupon->set_offset(Vec3d(x, y, base_height));
                 apply_fuzzy(coupon->config, cell);
+                add_bed_patch(*object, cell, x, y);
             }
 
             if (config.labels) {
@@ -19526,6 +19552,41 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
             ModelInstance* instance = object->add_instance();
             instance->set_offset(plate_origin + Vec3d(bed_center.x(), bed_center.y(), 0.0));
             register_object(*object);
+        } else if (plan.shared_object) {
+            ModelObject* object = model().add_object();
+            object->name        = "Fuzzy skin supported-underside calibration coupons";
+            apply_common(object->config);
+            object->config.set_key_value("enable_support", new ConfigOptionBool(true));
+            object->config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stNormalAuto));
+            object->config.set_key_value("support_top_z_distance", new ConfigOptionFloat(0.5));
+            object->config.set_key_value("bridge_no_support", new ConfigOptionBool(false));
+
+            const double grid_left = -0.5 * grid_width;
+            const double grid_top  = 0.5 * grid_depth;
+            for (size_t index = 0; index < plan.cells.size(); ++index) {
+                const FuzzySkinCalibrationCell& cell = plan.cells[index];
+                const double x = grid_left + 0.5 * config.coupon_width + double(cell.column) * (config.coupon_width + config.gap);
+                const double y = grid_top - 0.5 * config.coupon_depth - double(cell.row) * (config.coupon_depth + config.gap);
+                ModelVolume* coupon = object->add_volume(make_fuzzy_skin_calibration_bridge(config.coupon_width, config.coupon_depth, 8.0,
+                                                                                            config.coupon_height),
+                                                         ModelVolumeType::MODEL_PART, false);
+                coupon->name = "Fuzzy test surface " + cell.label;
+                coupon->set_offset(Vec3d(x, y, 0.0));
+                apply_fuzzy(coupon->config, cell);
+                add_bed_patch(*object, cell, x, y);
+
+                if (config.labels) {
+                    ModelVolume* label = object->add_volume(make_fuzzy_skin_calibration_label(cell.label, 1.6, 0.35),
+                                                            ModelVolumeType::MODEL_PART, false);
+                    label->name = "Calibration label " + cell.label;
+                    label->set_offset(Vec3d(x, y, 8.0 + config.coupon_height));
+                    smooth_label(*label);
+                }
+            }
+
+            ModelInstance* instance = object->add_instance();
+            instance->set_offset(plate_origin + Vec3d(bed_center.x(), bed_center.y(), 0.0));
+            register_object(*object);
         } else {
             const double grid_left = bed_center.x() - 0.5 * grid_width;
             const double grid_top  = bed_center.y() + 0.5 * grid_depth;
@@ -19534,26 +19595,17 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
                 ModelObject*                    object = model().add_object();
                 object->name                           = "Fuzzy skin coupon " + std::to_string(index + 1) + " " + cell.label;
                 apply_common(object->config);
-                const bool   underside = config.mode == FuzzySkinCalibrationMode::SupportedUnderside;
-                ModelVolume* coupon    = object->add_volume(underside ?
-                                                                make_fuzzy_skin_calibration_bridge(config.coupon_width, config.coupon_depth,
-                                                                                                   8.0, config.coupon_height) :
-                                                                make_fuzzy_skin_calibration_coupon(config.coupon_width, config.coupon_depth,
-                                                                                                   config.coupon_height),
+                ModelVolume* coupon = object->add_volume(make_fuzzy_skin_calibration_coupon(config.coupon_width, config.coupon_depth,
+                                                                                            config.coupon_height),
                                                          ModelVolumeType::MODEL_PART, false);
                 coupon->name = "Fuzzy test surface";
                 apply_fuzzy(coupon->config, cell);
-                if (underside) {
-                    object->config.set_key_value("enable_support", new ConfigOptionBool(true));
-                    object->config.set_key_value("support_type", new ConfigOptionEnum<SupportType>(stNormalAuto));
-                    object->config.set_key_value("support_top_z_distance", new ConfigOptionFloat(0.5));
-                    object->config.set_key_value("bridge_no_support", new ConfigOptionBool(false));
-                }
+                add_bed_patch(*object, cell, 0.0, 0.0);
                 if (config.labels) {
                     ModelVolume* label = object->add_volume(make_fuzzy_skin_calibration_label(cell.label, 1.6, 0.35),
                                                             ModelVolumeType::MODEL_PART, false);
                     label->name        = "Calibration label";
-                    label->set_offset(Vec3d(0.0, 0.0, (underside ? 8.0 : 0.0) + config.coupon_height));
+                    label->set_offset(Vec3d(0.0, 0.0, config.coupon_height));
                     smooth_label(*label);
                 }
                 const double   x        = grid_left + 0.5 * config.coupon_width + double(cell.column) * (config.coupon_width + config.gap);

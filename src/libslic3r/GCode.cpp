@@ -97,7 +97,7 @@ static const float g_purge_volume_one_time = 135.f;
 static const int   g_max_flush_count       = 4;
 // static const size_t g_max_label_object = 64;
 
-enum class HorizontalFuzzyKind { None, Top, Lower };
+enum class HorizontalFuzzyKind { None, Top, Lower, Bed };
 
 static bool horizontal_fuzzy_skin_enabled(const FullPrintConfig& config)
 {
@@ -113,6 +113,10 @@ static bool horizontal_top_fuzzy_skin_enabled(const FullPrintConfig& config, boo
 
 static HorizontalFuzzyKind horizontal_fuzzy_kind(const FullPrintConfig& config, ExtrusionRole role, bool first_layer)
 {
+    if (Feature::FuzzySkin::is_bed_fuzzy_surface(role, first_layer, config.fuzzy_skin_bed_surface.value) &&
+        horizontal_fuzzy_skin_enabled(config))
+        return HorizontalFuzzyKind::Bed;
+
     if (role == erTopSolidInfill && horizontal_top_fuzzy_skin_enabled(config, first_layer))
         return HorizontalFuzzyKind::Top;
 
@@ -139,11 +143,15 @@ static Feature::FuzzySkin::FuzzySurfaceConfig horizontal_fuzzy_config(const Full
     result.noise_scale                    = config.fuzzy_skin_scale.value;
     result.noise_octaves                  = config.fuzzy_skin_octaves.value;
     result.noise_persistence              = config.fuzzy_skin_persistence.value;
-    result.displacement = Feature::FuzzySkin::fuzzy_surface_displacement(result.displacement, config.support_top_z_distance.value,
-                                                                         config.fuzzy_skin_min_support_distance.value,
-                                                                         kind == HorizontalFuzzyKind::Lower ?
-                                                                             Feature::FuzzySkin::FuzzySurfaceType::Lower :
-                                                                             Feature::FuzzySkin::FuzzySurfaceType::Top);
+    if (kind == HorizontalFuzzyKind::Bed)
+        result.displacement = Feature::FuzzySkin::fuzzy_bed_surface_displacement(result.displacement,
+                                                                                  config.initial_layer_print_height.value);
+    else
+        result.displacement = Feature::FuzzySkin::fuzzy_surface_displacement(result.displacement, config.support_top_z_distance.value,
+                                                                             config.fuzzy_skin_min_support_distance.value,
+                                                                             kind == HorizontalFuzzyKind::Lower ?
+                                                                                 Feature::FuzzySkin::FuzzySurfaceType::Lower :
+                                                                                 Feature::FuzzySkin::FuzzySurfaceType::Top);
     return result;
 }
 
@@ -7792,9 +7800,11 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
     const HorizontalFuzzyKind fuzzy_kind = sloped == nullptr ? horizontal_fuzzy_kind(m_config, path.role(), this->on_first_layer()) :
                                                                HorizontalFuzzyKind::None;
     const Feature::FuzzySkin::FuzzySurfaceConfig             fuzzy_config       = horizontal_fuzzy_config(m_config, fuzzy_kind);
-    const Feature::FuzzySkin::FuzzySurfaceType               fuzzy_surface_type = fuzzy_kind == HorizontalFuzzyKind::Lower ?
-                                                                                      Feature::FuzzySkin::FuzzySurfaceType::Lower :
-                                                                                      Feature::FuzzySkin::FuzzySurfaceType::Top;
+    const Feature::FuzzySkin::FuzzySurfaceType fuzzy_surface_type = fuzzy_kind == HorizontalFuzzyKind::Lower ?
+                                                                        Feature::FuzzySkin::FuzzySurfaceType::Lower :
+                                                                    fuzzy_kind == HorizontalFuzzyKind::Bed ?
+                                                                        Feature::FuzzySkin::FuzzySurfaceType::Bed :
+                                                                        Feature::FuzzySkin::FuzzySurfaceType::Top;
     const std::vector<Feature::FuzzySkin::FuzzySurfacePoint> fuzzy_points       = fuzzy_kind == HorizontalFuzzyKind::None ?
                                                                                       std::vector<Feature::FuzzySkin::FuzzySurfacePoint>{} :
                                                                                       Feature::FuzzySkin::fuzzy_surface_points(path.polyline,

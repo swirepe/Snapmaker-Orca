@@ -1739,12 +1739,12 @@ Fuzzy_Skin_Calibration_Dlg::Fuzzy_Skin_Calibration_Dlg(wxWindow* parent, wxWindo
         input->SetValidator(wxTextValidator(wxFILTER_NUMERIC));
         return input;
     };
-    m_thickness_min  = make_number("0.10");
-    m_thickness_max  = make_number("0.40");
-    m_thickness_step = make_number("0.10");
+    m_thickness_min  = make_number("0.05");
+    m_thickness_max  = make_number("0.50");
+    m_thickness_step = make_number("0.15");
     m_distance_min   = make_number("0.20");
-    m_distance_max   = make_number("0.80");
-    m_distance_step  = make_number("0.20");
+    m_distance_max   = make_number("2.00");
+    m_distance_step  = make_number("0.60");
     m_coupon_size    = make_number("20");
     add_control(_L("Thickness minimum (mm)"), m_thickness_min);
     add_control(_L("Thickness maximum (mm)"), m_thickness_max);

@@ -937,7 +937,7 @@ static std::vector<std::string> s_Preset_print_options {
     "support_ironing", "support_ironing_pattern", "support_ironing_flow", "support_ironing_spacing",
     "max_travel_detour_distance",
     "fuzzy_skin", "fuzzy_skin_thickness", "fuzzy_skin_point_distance", "fuzzy_skin_first_layer", "fuzzy_skin_noise_type", "fuzzy_skin_mode", "fuzzy_skin_scale", "fuzzy_skin_octaves", "fuzzy_skin_persistence",
-    "fuzzy_skin_top_surface", "fuzzy_skin_lower_surface", "fuzzy_skin_top_surface_first_layer", "fuzzy_skin_connect_walls", "fuzzy_skin_compensate_extrusion", "fuzzy_skin_bridge_compensation_multiplier", "fuzzy_skin_min_support_distance", "fuzzy_skin_ironing",
+    "fuzzy_skin_top_surface", "fuzzy_skin_lower_surface", "fuzzy_skin_top_surface_first_layer", "fuzzy_skin_bed_surface", "fuzzy_skin_connect_walls", "fuzzy_skin_compensate_extrusion", "fuzzy_skin_bridge_compensation_multiplier", "fuzzy_skin_min_support_distance", "fuzzy_skin_ironing",
     "thermal_pattern_mode", "thermal_pattern_preset", "thermal_pattern_seed",
     "thermal_pattern_outer_walls", "thermal_pattern_top_surfaces",
     "thermal_pattern_max_level", "thermal_pattern_top_max_level",

@@ -1,11 +1,15 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
+#include <set>
+#include <string>
 
 #include "libslic3r/Feature/FuzzySkin/FuzzySkin.hpp"
 #include "libslic3r/FuzzySkinCalibration.hpp"
+#include "libslic3r/Preset.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 using namespace Slic3r;
@@ -110,15 +114,46 @@ TEST_CASE("Supported lower displacement preserves the requested support clearanc
     REQUIRE(fuzzy_surface_displacement(0.4, 0.0, 0.1, FuzzySurfaceType::Top) == Catch::Approx(0.4));
 }
 
+TEST_CASE("Bed-facing displacement is capped below the next layer", "[FuzzySurface]")
+{
+    REQUIRE(fuzzy_bed_surface_displacement(0.5, 0.2) == Catch::Approx(0.05));
+    REQUIRE(fuzzy_bed_surface_displacement(0.01, 0.2) == Catch::Approx(0.01));
+    REQUIRE(fuzzy_bed_surface_displacement(0.5, -1.0) == Catch::Approx(0.0));
+}
+
+TEST_CASE("Bed-facing fuzzy classification is explicit and first-layer only", "[FuzzySurface]")
+{
+    REQUIRE(is_bed_fuzzy_surface(erBottomSurface, true, true));
+    REQUIRE_FALSE(is_bed_fuzzy_surface(erBottomSurface, false, true));
+    REQUIRE_FALSE(is_bed_fuzzy_surface(erBottomSurface, true, false));
+    REQUIRE_FALSE(is_bed_fuzzy_surface(erTopSolidInfill, true, true));
+    REQUIRE_FALSE(is_bed_fuzzy_surface(erBridgeInfill, true, true));
+}
+
 TEST_CASE("Horizontal fuzzy settings preserve legacy defaults", "[FuzzySurface][Config]")
 {
     const PrintRegionConfig config;
     REQUIRE_FALSE(config.fuzzy_skin_top_surface.value);
     REQUIRE_FALSE(config.fuzzy_skin_lower_surface.value);
     REQUIRE_FALSE(config.fuzzy_skin_top_surface_first_layer.value);
+    REQUIRE_FALSE(config.fuzzy_skin_bed_surface.value);
     REQUIRE(config.fuzzy_skin_connect_walls.value);
     REQUIRE(config.fuzzy_skin_compensate_extrusion.value);
     REQUIRE_FALSE(config.fuzzy_skin_ironing.value);
+}
+
+TEST_CASE("Every fuzzy skin quick-setting key is unique and registered", "[FuzzySurface][Config]")
+{
+    const PrintRegionConfig config;
+    const auto&             preset_keys = Preset::print_options();
+    std::set<std::string>   unique_keys;
+    for (const char* key : config_option_keys) {
+        CAPTURE(key);
+        REQUIRE(unique_keys.emplace(key).second);
+        REQUIRE(config.option(key) != nullptr);
+        REQUIRE(std::find(preset_keys.begin(), preset_keys.end(), key) != preset_keys.end());
+    }
+    REQUIRE(unique_keys.size() == config_option_keys.size());
 }
 
 TEST_CASE("Fuzzy skin calibration builds the default four by four matrix", "[FuzzySurface][Calibration]")
@@ -128,10 +163,11 @@ TEST_CASE("Fuzzy skin calibration builds the default four by four matrix", "[Fuz
     REQUIRE(plan.rows == 4);
     REQUIRE(plan.columns == 4);
     REQUIRE(plan.cells.size() == 16);
-    REQUIRE(plan.cells.front().thickness == Catch::Approx(0.1));
+    REQUIRE_FALSE(plan.shared_object);
+    REQUIRE(plan.cells.front().thickness == Catch::Approx(0.05));
     REQUIRE(plan.cells.front().distance == Catch::Approx(0.2));
-    REQUIRE(plan.cells.back().thickness == Catch::Approx(0.4));
-    REQUIRE(plan.cells.back().distance == Catch::Approx(0.8));
+    REQUIRE(plan.cells.back().thickness == Catch::Approx(0.5));
+    REQUIRE(plan.cells.back().distance == Catch::Approx(2.0));
 }
 
 TEST_CASE("Fuzzy ironing calibration pairs plain and following passes", "[FuzzySurface][Calibration]")
@@ -150,7 +186,46 @@ TEST_CASE("Fuzzy skin calibration creates printable coupon meshes", "[FuzzySurfa
 {
     REQUIRE_FALSE(make_fuzzy_skin_calibration_coupon(20.0, 20.0, 2.0).empty());
     REQUIRE_FALSE(make_fuzzy_skin_calibration_bridge(20.0, 20.0, 8.0, 2.0).empty());
+    const TriangleMesh bed_patch = make_fuzzy_skin_calibration_bed_patch(5.0, 0.2);
+    REQUIRE_FALSE(bed_patch.empty());
+    const BoundingBoxf3 patch_bounds = bed_patch.bounding_box();
+    REQUIRE(patch_bounds.min.x() == Catch::Approx(-5.0));
+    REQUIRE(patch_bounds.max.x() == Catch::Approx(5.0));
+    REQUIRE(patch_bounds.min.z() == Catch::Approx(0.0));
+    REQUIRE(patch_bounds.max.z() == Catch::Approx(0.2));
     REQUIRE_FALSE(make_fuzzy_skin_calibration_label("T=0.1 D=0.2", 1.6, 0.35).empty());
+}
+
+TEST_CASE("Every calibration card gets a bed-contacting circular patch", "[FuzzySurface][Calibration]")
+{
+    FuzzySkinCalibrationConfig config;
+    const auto regular = fuzzy_skin_calibration_bed_patch(config);
+    REQUIRE(regular.center_x == Catch::Approx(0.0));
+    REQUIRE(regular.center_y == Catch::Approx(0.0));
+    REQUIRE(regular.radius == Catch::Approx(5.0));
+
+    config.mode = FuzzySkinCalibrationMode::SupportedUnderside;
+    config.layout = FuzzySkinCalibrationLayout::BreakawayCoupons;
+    const auto supported = fuzzy_skin_calibration_bed_patch(config);
+    const double leg_width = std::min(3.0, 0.2 * config.coupon_width);
+    const double leg_min_x = -0.5 * config.coupon_width;
+    const double leg_max_x = leg_min_x + leg_width;
+    REQUIRE(supported.radius > 0.0);
+    REQUIRE(supported.center_x - supported.radius >= leg_min_x);
+    REQUIRE(supported.center_x + supported.radius <= leg_max_x);
+
+    const FuzzySkinCalibrationPlan plan = build_fuzzy_skin_calibration_plan(config);
+    REQUIRE(plan.shared_object);
+}
+
+TEST_CASE("Calibration maps bed texture values proportionally into the safe cap", "[FuzzySurface][Calibration]")
+{
+    const FuzzySkinCalibrationConfig config;
+    const double first = fuzzy_skin_calibration_bed_thickness(config, 0.05, 0.2);
+    const double last  = fuzzy_skin_calibration_bed_thickness(config, 0.50, 0.2);
+    REQUIRE(first == Catch::Approx(0.005));
+    REQUIRE(last == Catch::Approx(0.05));
+    REQUIRE(first < last);
 }
 
 TEST_CASE("Fuzzy skin calibration labels preserve hundredths", "[FuzzySurface][Calibration]")

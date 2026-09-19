@@ -1,13 +1,36 @@
 #ifndef libslic3r_FuzzySkin_hpp_
 #define libslic3r_FuzzySkin_hpp_
 
+#include <array>
+
 #include "libslic3r/Arachne/utils/ExtrusionJunction.hpp"
 #include "libslic3r/Arachne/utils/ExtrusionLine.hpp"
 #include "libslic3r/PerimeterGenerator.hpp"
 
 namespace Slic3r::Feature::FuzzySkin {
 
-enum class FuzzySurfaceType { Top, Lower };
+inline constexpr std::array<const char*, 18> config_option_keys{{
+    "fuzzy_skin",
+    "fuzzy_skin_thickness",
+    "fuzzy_skin_point_distance",
+    "fuzzy_skin_first_layer",
+    "fuzzy_skin_noise_type",
+    "fuzzy_skin_mode",
+    "fuzzy_skin_scale",
+    "fuzzy_skin_octaves",
+    "fuzzy_skin_persistence",
+    "fuzzy_skin_top_surface",
+    "fuzzy_skin_lower_surface",
+    "fuzzy_skin_top_surface_first_layer",
+    "fuzzy_skin_bed_surface",
+    "fuzzy_skin_connect_walls",
+    "fuzzy_skin_compensate_extrusion",
+    "fuzzy_skin_bridge_compensation_multiplier",
+    "fuzzy_skin_min_support_distance",
+    "fuzzy_skin_ironing",
+}};
+
+enum class FuzzySurfaceType { Top, Lower, Bed };
 
 struct FuzzySurfaceConfig
 {
@@ -32,6 +55,10 @@ struct FuzzySurfacePoint
 double fuzzy_surface_noise(const Vec2d& position, coordf_t slice_z, const FuzzySurfaceConfig& config);
 
 double fuzzy_surface_displacement(double thickness, double support_top_z_distance, double minimum_support_distance, FuzzySurfaceType type);
+
+double fuzzy_bed_surface_displacement(double thickness, double first_layer_height);
+
+bool is_bed_fuzzy_surface(ExtrusionRole role, bool first_layer, bool enabled);
 
 std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           polyline,
                                                     coordf_t                  slice_z,
