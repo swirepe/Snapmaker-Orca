@@ -3,6 +3,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/log/trivial.hpp>
+#include <charconv>
 #include <iostream>
 #include <float.h>
 #include <system_error>
@@ -41,6 +42,7 @@ void CoolingBuffer::reset(const Vec3d &position)
     m_fan_speed = -1;
     m_additional_fan_speed = -1;
     m_current_fan_speed = -1;
+    m_region_fan_speed = -1;
 }
 
 struct CoolingLine
@@ -71,6 +73,7 @@ struct CoolingLine
         // ORCA: Add support for ironing fan speed control
         TYPE_IRONING_FAN_START         = 1 << 19,
         TYPE_IRONING_FAN_END           = 1 << 20,
+        TYPE_REGION_FAN_SPEED          = 1 << 21,
     };
 
     CoolingLine(unsigned int type, size_t  line_start, size_t  line_end) :
@@ -102,6 +105,9 @@ struct CoolingLine
     float   time_max;
     // If marked with the "slowdown" flag, the line has been slowed down.
     bool    slowdown;
+    // Percent fan speed carried by TYPE_REGION_FAN_SPEED. -1 resumes the
+    // cooling buffer's active role/base fan state.
+    int     fan_speed {-1};
 };
 
 // Calculate the required per extruder time stretches.
@@ -540,6 +546,15 @@ std::vector<PerExtruderAdjustments> CoolingBuffer::parse_layer_gcode(const std::
                 (pos_P > 0) ? atof(sline.c_str() + pos_P + 1) * 0.001 : 0.);
         } else if (boost::starts_with(sline, ";_FORCE_RESUME_FAN_SPEED")) {
             line.type = CoolingLine::TYPE_FORCE_RESUME_FAN;
+        } else if (boost::starts_with(sline, REGION_FAN_SPEED_MARKER)) {
+            const char *value_begin = sline.data() + sizeof(REGION_FAN_SPEED_MARKER) - 1;
+            const char *value_end   = sline.data() + sline.size();
+            int         fan_speed   = -1;
+            const auto  parsed      = std::from_chars(value_begin, value_end, fan_speed);
+            if (parsed.ec == std::errc() && parsed.ptr == value_end && fan_speed >= -1 && fan_speed <= 100) {
+                line.type      = CoolingLine::TYPE_REGION_FAN_SPEED;
+                line.fan_speed = fan_speed;
+            }
         }
 
         // Orca: For any movements before this layer's first ever extrusion, we exclude them from the layer time calculation.
@@ -802,9 +817,13 @@ std::string CoolingBuffer::apply_layer_cooldown(
         }
         if (fan_speed_new != m_fan_speed) {
             m_fan_speed = fan_speed_new;
-            m_current_fan_speed = fan_speed_new;
-            if (immediately_apply)
-                new_gcode  += GCodeWriter::set_fan(m_config.gcode_flavor, m_fan_speed);
+            if (immediately_apply) {
+                const int requested_fan_speed = m_region_fan_speed >= 0 ? m_region_fan_speed : m_fan_speed;
+                if (requested_fan_speed != m_current_fan_speed) {
+                    new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, requested_fan_speed);
+                    m_current_fan_speed = requested_fan_speed;
+                }
+            }
         }
         //BBS
         if (additional_fan_speed_new != m_additional_fan_speed) {
@@ -826,6 +845,20 @@ std::string CoolingBuffer::apply_layer_cooldown(
                                                                {CoolingLine::TYPE_IRONING_FAN_START, false}, // ORCA: Add support for ironing fan speed control
                                                                {CoolingLine::TYPE_FORCE_RESUME_FAN, false}};
     bool need_set_fan = false;
+
+    auto requested_fan_speed = [&]() {
+        if (m_region_fan_speed >= 0)
+            return m_region_fan_speed;
+        if (fan_speed_change_requests[CoolingLine::TYPE_OVERHANG_FAN_START])
+            return overhang_fan_speed;
+        if (fan_speed_change_requests[CoolingLine::TYPE_INTERNAL_BRIDGE_FAN_START])
+            return internal_bridge_fan_speed;
+        if (fan_speed_change_requests[CoolingLine::TYPE_SUPPORT_INTERFACE_FAN_START])
+            return supp_interface_fan_speed;
+        if (fan_speed_change_requests[CoolingLine::TYPE_IRONING_FAN_START])
+            return ironing_fan_speed;
+        return m_fan_speed;
+    };
 
     for (const CoolingLine *line : lines) {
         const char *line_start  = gcode.c_str() + line->line_start;
@@ -890,6 +923,9 @@ std::string CoolingBuffer::apply_layer_cooldown(
             }
             if (m_additional_fan_speed != -1 && m_config.auxiliary_fan.value)
                 new_gcode += GCodeWriter::set_additional_fan(m_additional_fan_speed);
+        } else if (line->type & CoolingLine::TYPE_REGION_FAN_SPEED) {
+            m_region_fan_speed = line->fan_speed;
+            need_set_fan = true;
         }
         else if (line->type & CoolingLine::TYPE_EXTRUDE_END) {
             // Just remove this comment.
@@ -977,27 +1013,12 @@ std::string CoolingBuffer::apply_layer_cooldown(
         }
 
         if (need_set_fan) {
-            if (fan_speed_change_requests[CoolingLine::TYPE_OVERHANG_FAN_START]){
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, overhang_fan_speed);
-                m_current_fan_speed = overhang_fan_speed;
-            } else if (fan_speed_change_requests[CoolingLine::TYPE_INTERNAL_BRIDGE_FAN_START]){ // ORCA: Add support for separate internal bridge fan speed control
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, internal_bridge_fan_speed);
-                m_current_fan_speed = internal_bridge_fan_speed;
+            const int fan_speed = requested_fan_speed();
+            if (fan_speed >= 0 && fan_speed != m_current_fan_speed) {
+                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, fan_speed);
+                m_current_fan_speed = fan_speed;
             }
-            else if (fan_speed_change_requests[CoolingLine::TYPE_SUPPORT_INTERFACE_FAN_START]){
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, supp_interface_fan_speed);
-                m_current_fan_speed = supp_interface_fan_speed;
-            }
-            else if (fan_speed_change_requests[CoolingLine::TYPE_IRONING_FAN_START]){
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, ironing_fan_speed);
-                m_current_fan_speed = ironing_fan_speed;
-            }
-            else if(fan_speed_change_requests[CoolingLine::TYPE_FORCE_RESUME_FAN] && m_current_fan_speed != -1){
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, m_current_fan_speed);
-                fan_speed_change_requests[CoolingLine::TYPE_FORCE_RESUME_FAN] = false;
-            }
-            else
-                new_gcode += GCodeWriter::set_fan(m_config.gcode_flavor, m_fan_speed);
+            fan_speed_change_requests[CoolingLine::TYPE_FORCE_RESUME_FAN] = false;
             need_set_fan = false;
         }
         pos = line_end;

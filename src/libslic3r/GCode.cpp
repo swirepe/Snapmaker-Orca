@@ -5058,8 +5058,14 @@ LayerResult GCode::process_layer(const Print& print,
                 // In single extruder multi material mode, set the temperature for the current extruder only.
                 continue;
             int temperature = get_value_at(print.config(), print.config().nozzle_temperature, ConfigFlowDomain::Filament, extruder.id());
-            if (temperature > 0 && temperature != get_value_at(print.config(), print.config().nozzle_temperature_initial_layer, ConfigFlowDomain::Filament, extruder.id()))
+            if (temperature > 0 && temperature != get_value_at(print.config(), print.config().nozzle_temperature_initial_layer, ConfigFlowDomain::Filament, extruder.id())) {
                 gcode += m_writer.set_temperature(temperature, false, extruder.id());
+                // The second-layer transition changes the physical target behind
+                // the regional cache. Force the first extrusion in an overridden
+                // region to assert its target again.
+                if (int(extruder.id()) == m_last_region_temperature_extruder)
+                    m_last_region_temperature = -1;
+            }
         }
 
         // BBS: bed temperature accommodates the highest-temperature filament of the print
@@ -7487,10 +7493,13 @@ std::string GCode::set_region_process_overrides(ExtrusionRole role)
         effective_fan_speed = m_config.ironing_fan_speed_override.value;
 
     if (effective_fan_speed != m_last_region_fan_speed) {
-        if (effective_fan_speed >= 0)
-            gcode += m_writer.set_fan(unsigned(effective_fan_speed));
+        if (effective_fan_speed >= 0) {
+            gcode += REGION_FAN_SPEED_MARKER;
+            gcode += std::to_string(effective_fan_speed);
+            gcode += '\n';
+        }
         else if (m_last_region_fan_speed >= 0)
-            gcode += ";_FORCE_RESUME_FAN_SPEED\n";
+            gcode += std::string(REGION_FAN_SPEED_MARKER) + "-1\n";
         m_last_region_fan_speed = effective_fan_speed;
     }
 
