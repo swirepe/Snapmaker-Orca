@@ -162,6 +162,16 @@ double fuzzy_surface_displacement(double thickness, double support_top_z_distanc
     return std::min(nonnegative_thickness, std::max(0.0, support_top_z_distance - minimum_support_distance));
 }
 
+double fuzzy_bed_surface_displacement(double thickness, double first_layer_height)
+{
+    return std::min(std::max(0.0, thickness), 0.25 * std::max(0.0, first_layer_height));
+}
+
+bool is_bed_fuzzy_surface(ExtrusionRole role, bool first_layer, bool enabled)
+{
+    return enabled && first_layer && role == erBottomSurface;
+}
+
 std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           polyline,
                                                     coordf_t                  slice_z,
                                                     FuzzySurfaceType          type,

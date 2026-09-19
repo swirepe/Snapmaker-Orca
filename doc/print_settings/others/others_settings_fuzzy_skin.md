@@ -142,7 +142,9 @@ Enable to apply fuzzy skin to the first layer.
 
 ## Horizontal fuzzy surfaces
 
-**Fuzzy skin on top surfaces** converts top-solid infill into coordinated non-planar XYZ moves. It reuses the normal skin thickness, point distance, and noise controls. **Apply top-surface fuzzy skin to first layer** is intentionally separate from the wall-first-layer option: walls can remain textured down to the bed while the bed-facing surface stays flat.
+**Fuzzy skin on top surfaces** converts top-solid infill into coordinated non-planar XYZ moves. It reuses the normal skin thickness, point distance, and noise controls. **Apply top-surface fuzzy skin to first layer** is intentionally separate from the wall-first-layer option and still applies only to top-solid paths.
+
+**Fuzzy skin on bed-facing surfaces** is a separate opt-in for first-layer bottom-surface paths. It uses positive Z displacement to vary the material's squish against the build plate, never commands the nozzle below the nominal first-layer height, and is capped at 25% of the initial layer height to preserve clearance for the next layer.
 
 **Fuzzy skin on supported lower surfaces** applies downward texture only to external bridge infill when support is enabled. The displacement is limited by the configured support top-Z gap, while **Minimum support-interface distance** reserves clearance above the support. Ordinary bottom surfaces, internal bridges, unsupported bridges, and overhang walls are unchanged.
 
@@ -165,6 +167,8 @@ Open **Calibration → Fuzzy skin** to generate one of three labeled artifacts:
 - **Supported underside** creates supported bridge canopies for inspecting downward texture and is available as breakaway coupons.
 
 Connected panels use smooth row and column headers. Breakaway coupons carry their own physical `T`, `D`, and, where relevant, `I` label. The generator checks the active build-plate size before replacing the current project, and all tested values remain object or volume overrides rather than modifying the selected preset.
+
+Every matrix and ironing card includes a circular parameter-modifier region on its bed-facing side using the same thickness and distance as that card. Supported-underside cards place the circle over a bed-contacting leg. Supported cards are disconnected solids in one model object so automatic support is generated as one field without inter-object G-code path-conflict warnings.
 
 ## Credits
 

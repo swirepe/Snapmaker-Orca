@@ -1226,6 +1226,7 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "fuzzy_skin_top_surface"
             || opt_key == "fuzzy_skin_lower_surface"
             || opt_key == "fuzzy_skin_top_surface_first_layer"
+            || opt_key == "fuzzy_skin_bed_surface"
             || opt_key == "fuzzy_skin_connect_walls"
             || opt_key == "fuzzy_skin_compensate_extrusion"
             || opt_key == "fuzzy_skin_bridge_compensation_multiplier"

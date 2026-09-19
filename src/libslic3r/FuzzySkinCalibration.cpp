@@ -88,6 +88,7 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
     const std::vector<double> thicknesses = fuzzy_skin_calibration_values(config.thickness);
     const std::vector<double> distances   = fuzzy_skin_calibration_values(config.distance);
     FuzzySkinCalibrationPlan  plan;
+    plan.shared_object = config.mode == FuzzySkinCalibrationMode::SupportedUnderside;
 
     if (config.mode == FuzzySkinCalibrationMode::IroningComparison) {
         plan.rows    = 2 * distances.size();
@@ -118,6 +119,31 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
     return plan;
 }
 
+FuzzySkinCalibrationBedPatch fuzzy_skin_calibration_bed_patch(const FuzzySkinCalibrationConfig& config)
+{
+    if (!std::isfinite(config.coupon_width) || !std::isfinite(config.coupon_depth) || config.coupon_width <= 0.0 ||
+        config.coupon_depth <= 0.0)
+        throw std::invalid_argument("Calibration coupon dimensions must be positive");
+
+    FuzzySkinCalibrationBedPatch patch;
+    if (config.mode == FuzzySkinCalibrationMode::SupportedUnderside) {
+        const double leg_width = std::min(3.0, 0.2 * config.coupon_width);
+        patch.center_x         = -0.5 * config.coupon_width + 0.5 * leg_width;
+        patch.radius           = std::min(0.4 * leg_width, 0.2 * config.coupon_depth);
+    } else {
+        patch.radius = 0.25 * std::min(config.coupon_width, config.coupon_depth);
+    }
+    return patch;
+}
+
+double fuzzy_skin_calibration_bed_thickness(const FuzzySkinCalibrationConfig& config, double thickness, double first_layer_height)
+{
+    if (!std::isfinite(thickness) || !std::isfinite(first_layer_height) || config.thickness.maximum <= 0.0 || thickness < 0.0 ||
+        first_layer_height <= 0.0)
+        throw std::invalid_argument("Calibration bed texture dimensions must be positive");
+    return 0.25 * first_layer_height * std::clamp(thickness / config.thickness.maximum, 0.0, 1.0);
+}
+
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height)
 {
     if (width <= 0.0 || depth <= 0.0 || height <= 0.0)
@@ -143,6 +169,13 @@ TriangleMesh make_fuzzy_skin_calibration_bridge(double width, double depth, doub
     translate(roof, float(-0.5 * width), float(-0.5 * depth), float(roof_height));
     its_merge(mesh, roof);
     return TriangleMesh(std::move(mesh));
+}
+
+TriangleMesh make_fuzzy_skin_calibration_bed_patch(double radius, double height)
+{
+    if (radius <= 0.0 || height <= 0.0)
+        throw std::invalid_argument("Calibration bed patch dimensions must be positive");
+    return TriangleMesh(its_make_cylinder(radius, height, PI / 36.0));
 }
 
 TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double glyph_height, double relief)

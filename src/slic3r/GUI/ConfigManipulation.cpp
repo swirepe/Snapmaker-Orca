@@ -844,8 +844,8 @@ void ConfigManipulation::toggle_print_fff_options(DynamicPrintConfig *config, co
     const bool fuzzy_top_enabled          = fuzzy_skin_enabled && config->opt_bool("fuzzy_skin_top_surface");
     const bool fuzzy_lower_enabled        = fuzzy_skin_enabled && config->opt_bool("fuzzy_skin_lower_surface");
     const bool fuzzy_compensation_enabled = fuzzy_skin_enabled && config->opt_bool("fuzzy_skin_compensate_extrusion");
-    for (const char* key :
-         {"fuzzy_skin_top_surface", "fuzzy_skin_lower_surface", "fuzzy_skin_connect_walls", "fuzzy_skin_compensate_extrusion"})
+    for (const char* key : {"fuzzy_skin_top_surface", "fuzzy_skin_lower_surface", "fuzzy_skin_bed_surface",
+                            "fuzzy_skin_connect_walls", "fuzzy_skin_compensate_extrusion"})
         toggle_line(key, fuzzy_skin_enabled);
     toggle_line("fuzzy_skin_top_surface_first_layer", fuzzy_top_enabled);
     toggle_line("fuzzy_skin_ironing", fuzzy_top_enabled);

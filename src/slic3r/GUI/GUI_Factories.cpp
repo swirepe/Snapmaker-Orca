@@ -2,6 +2,7 @@
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/PresetBundle.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/Feature/FuzzySkin/FuzzySkin.hpp"
 
 #include "GUI_Factories.hpp"
 #include "GUI_ObjectList.hpp"
@@ -115,6 +116,16 @@ static SettingsFactory::Bundle FREQ_SETTINGS_BUNDLE_SLA =
     // BBS: remove SLA freq settings
 };
 
+static std::vector<SimpleSettingData> fuzzy_skin_quick_settings()
+{
+    std::vector<SimpleSettingData> settings;
+    settings.reserve(Feature::FuzzySkin::config_option_keys.size());
+    int priority = 1;
+    for (const char* key : Feature::FuzzySkin::config_option_keys)
+        settings.push_back({key, "", priority++});
+    return settings;
+}
+
 //BBS: add setting data for table
 std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::OBJECT_CATEGORY_SETTINGS=
 {
@@ -154,7 +165,8 @@ std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::PART_CAT
     { L("Speed"), {{"outer_wall_speed", "",1},{"inner_wall_speed", "",2},{"sparse_infill_speed", "",3},{"top_surface_speed", "",4}, {"internal_solid_infill_speed", "",5},
                     {"enable_overhang_speed", "",6}, {"overhang_1_4_speed", "",7}, {"overhang_2_4_speed", "",8}, {"overhang_3_4_speed", "",9}, {"overhang_4_4_speed", "",10},
                     {"bridge_speed", "",11}, {"gap_infill_speed", "",12}, {"internal_bridge_speed", "", 13}
-                    }}
+                    }},
+    { L("Fuzzy Skin"), fuzzy_skin_quick_settings() }
 };
 
 std::vector<std::string> SettingsFactory::get_options(const bool is_part)

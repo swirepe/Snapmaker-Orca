@@ -1065,6 +1065,7 @@ PRINT_CONFIG_CLASS_DEFINE(
     ((ConfigOptionBool,                 fuzzy_skin_top_surface))
     ((ConfigOptionBool,                 fuzzy_skin_lower_surface))
     ((ConfigOptionBool,                 fuzzy_skin_top_surface_first_layer))
+    ((ConfigOptionBool,                 fuzzy_skin_bed_surface))
     ((ConfigOptionBool,                 fuzzy_skin_connect_walls))
     ((ConfigOptionBool,                 fuzzy_skin_compensate_extrusion))
     ((ConfigOptionFloat,                fuzzy_skin_bridge_compensation_multiplier))

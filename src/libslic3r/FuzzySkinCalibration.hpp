@@ -15,9 +15,9 @@ enum class FuzzySkinCalibrationLayout { ConnectedPanel, BreakawayCoupons };
 
 struct FuzzySkinCalibrationRange
 {
-    double minimum{0.1};
-    double maximum{0.4};
-    double step{0.1};
+    double minimum{0.05};
+    double maximum{0.5};
+    double step{0.15};
 };
 
 struct FuzzySkinCalibrationConfig
@@ -25,7 +25,7 @@ struct FuzzySkinCalibrationConfig
     FuzzySkinCalibrationMode   mode{FuzzySkinCalibrationMode::TextureMatrix};
     FuzzySkinCalibrationLayout layout{FuzzySkinCalibrationLayout::ConnectedPanel};
     FuzzySkinCalibrationRange  thickness;
-    FuzzySkinCalibrationRange  distance{0.2, 0.8, 0.2};
+    FuzzySkinCalibrationRange  distance{0.2, 2.0, 0.6};
     double                     coupon_width{20.0};
     double                     coupon_depth{20.0};
     double                     coupon_height{2.0};
@@ -47,15 +47,26 @@ struct FuzzySkinCalibrationPlan
 {
     size_t                                rows{0};
     size_t                                columns{0};
+    bool                                  shared_object{false};
     std::vector<FuzzySkinCalibrationCell> cells;
+};
+
+struct FuzzySkinCalibrationBedPatch
+{
+    double center_x{0.0};
+    double center_y{0.0};
+    double radius{0.0};
 };
 
 std::vector<double>      fuzzy_skin_calibration_values(const FuzzySkinCalibrationRange& range);
 std::string              fuzzy_skin_calibration_value_label(double value);
 FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibrationConfig& config);
+FuzzySkinCalibrationBedPatch fuzzy_skin_calibration_bed_patch(const FuzzySkinCalibrationConfig& config);
+double fuzzy_skin_calibration_bed_thickness(const FuzzySkinCalibrationConfig& config, double thickness, double first_layer_height);
 
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height);
 TriangleMesh make_fuzzy_skin_calibration_bridge(double width, double depth, double roof_height, double roof_thickness);
+TriangleMesh make_fuzzy_skin_calibration_bed_patch(double radius, double height);
 TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double glyph_height, double relief);
 
 } // namespace Slic3r

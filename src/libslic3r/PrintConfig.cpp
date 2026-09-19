@@ -3065,6 +3065,14 @@ void PrintConfigDef::init_fff_params()
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
+    def           = this->add("fuzzy_skin_bed_surface", coBool);
+    def->label    = L("Fuzzy skin on bed-facing surfaces");
+    def->category = L("Others");
+    def->tooltip  = L("Add positive-Z fuzzy texture to bottom-surface extrusion on the first layer. Displacement is capped at 25% of "
+                      "the initial layer height and never moves below the configured print height.");
+    def->mode     = comAdvanced;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def           = this->add("fuzzy_skin_connect_walls", coBool);
     def->label    = L("Connect fuzzy surface boundaries");
     def->category = L("Others");
