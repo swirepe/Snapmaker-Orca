@@ -64,7 +64,7 @@ struct PaneCalibrationConfig
 
     bool   labels {false};
     double label_glyph_height {2.};
-    double label_relief {2.};
+    double label_relief {0.5};
     int    pane_extruder {1};
     int    label_extruder {1};
 };
@@ -85,6 +85,14 @@ struct PaneCalibrationPlan
     std::vector<PaneCalibrationRow> rows;
 };
 
+struct PaneCalibrationPlacementConstraints
+{
+    double object_height {0.};
+    double effective_gap {0.};
+    bool   requires_toolhead_clearance {false};
+    bool   one_per_row {false};
+};
+
 std::vector<double> pane_calibration_linear_values(double minimum, double maximum, unsigned levels);
 
 // Returns an orthogonal array containing zero-based level indices. The smallest
@@ -94,6 +102,14 @@ std::pair<std::string, std::vector<std::vector<unsigned>>>
 pane_calibration_taguchi_array(unsigned levels, size_t columns);
 
 PaneCalibrationPlan build_pane_calibration_plan(const PaneCalibrationConfig &config);
+
+// Mirrors the sequential-print collision rules. Objects below nozzle_height
+// only need the requested gap. Taller objects need the printer's full
+// extruder-clearance radius, and objects above the rod clearance must not
+// share a row with a later object.
+PaneCalibrationPlacementConstraints pane_calibration_placement_constraints(
+    const PaneCalibrationConfig &config, size_t object_count, double nozzle_height, double clearance_radius,
+    double clearance_height_to_rod, double clearance_height_to_lid);
 
 std::string pane_calibration_factor_key(PaneCalibrationFactor factor);
 std::string pane_calibration_format_value(PaneCalibrationFactor factor, double value, unsigned experiment_levels);

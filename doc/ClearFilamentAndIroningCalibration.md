@@ -1,17 +1,17 @@
-# Clear Filament and Ironing Calibration
+# Transparent Filament and Ironing Calibration
 
 ## Purpose
 
 Snapmaker Orca shall provide two related calibration generators:
 
-1. **Clear filament calibration** screens process variables that affect optical clarity.
+1. **Transparent filament calibration** screens process variables that affect optical clarity.
 2. **Ironing calibration** screens ironing behavior independently while using the same pane, layout, label, and experiment-design machinery.
 
 Both generators create an editable project containing individually configured rectangular panes. The generated project remains a normal project: panes may be moved, settings may be inspected or changed, and the project may be saved before slicing.
 
 ## Entry points and project behavior
 
-- Add **Clear filament** and **Ironing** entries to the Calibration menu on every platform.
+- Add **Transparent filament** and **Ironing** entries to the Calibration menu on every platform.
 - Opening either entry displays a modal calibration dialog.
 - Generating a test uses the existing new-project confirmation and replaces the current project only after confirmation succeeds.
 - The dialog remembers its last-used values. Invalid or unsupported combinations disable generation and display an explanatory error.
@@ -34,7 +34,7 @@ Numeric levels include both endpoints and are linearly interpolated. Categorical
 
 ## Factors
 
-### Clear filament calibration
+### Transparent filament calibration
 
 The default design is a four-factor, four-level L16 array:
 
@@ -87,10 +87,12 @@ Normal process settings retain the existing topmost-only ironing option, but the
 
 ## Pane geometry and layout
 
-- Default clear-filament pane: 30 × 30 × 1 mm.
+- Default transparent-filament pane: 30 × 30 × 1 mm.
 - Default ironing pane: 30 × 30 × 2 mm.
-- Width, depth, height, and gap are configurable; the default gap is 5 mm.
+- Width, depth, height, and requested gap are configurable; the default requested gap is 5 mm.
 - Panes are laid out in a centered, row-major grid on the active build plate while avoiding excluded areas.
+- When the complete pane and label stay below the printer's nozzle-height threshold, the panes use the requested close spacing. This is the printer's short-object mode and does not apply the full toolhead radius.
+- Taller panes automatically use at least the printer's extruder-clearance radius between objects. Panes above the height-to-rod limit are restricted to one object per row, and multiple panes above the height-to-lid limit are rejected.
 - The generated object list uses the same row-major order.
 - Each pane uses one wall, 100% aligned-rectilinear sparse infill, aligned-rectilinear internal solid infill, and aligned-rectilinear top and bottom surfaces.
 - Pane geometry uses the selected pane extruder.
@@ -107,8 +109,9 @@ Normal process settings retain the existing topmost-only ironing option, but the
 
 - Labels are optional and disabled by default.
 - Labels are real editable model geometry and are visible in Prepare view.
-- The default monospaced glyph height is 2 mm; the default relief protrudes 2 mm above the pane.
+- The default monospaced glyph height is 2 mm; the default relief protrudes 0.5 mm above the pane.
 - Labels contain only factors varied by the experiment, use stable abbreviated keys, and wrap over multiple lines.
+- Each varied factor has its own baseline so adjacent factor values remain readable.
 - The generator validates that the label fits the pane and reports when a larger pane or smaller glyph size is required.
 - Pane and label extruders are independently selectable.
 - With the same extruder, each pane and its label print together. There is one temperature stabilization wait before the pane; the label inherits that pane's temperature and fan state but uses normal text speed, line width, and flow.

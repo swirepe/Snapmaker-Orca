@@ -19064,7 +19064,7 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     }
 
     const wxString project_name = config.tool == PaneCalibrationTool::ClearFilament ?
-        _L("Clear filament calibration") : _L("Ironing calibration");
+        _L("Transparent filament calibration") : _L("Ironing calibration");
     const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
     const auto *printable_area = full_config.opt<ConfigOptionPoints>("printable_area");
     const auto *nozzles = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
@@ -19114,6 +19114,18 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     const double ear_extension = config.mouse_ears ? 0.55 * 0.5 * config.mouse_ear_diameter : 0.;
     const double footprint_width = config.pane_width + 2. * ear_extension;
     const double footprint_depth = config.pane_depth + 2. * ear_extension;
+    PaneCalibrationPlacementConstraints placement;
+    try {
+        placement = pane_calibration_placement_constraints(
+            config, plan.rows.size(), full_config.opt_float("nozzle_height"),
+            full_config.opt_float("extruder_clearance_radius"),
+            full_config.opt_float("extruder_clearance_height_to_rod"),
+            full_config.opt_float("extruder_clearance_height_to_lid"));
+    } catch (const std::exception &error) {
+        MessageDialog(this, from_u8(error.what()), project_name, wxICON_WARNING | wxOK).ShowModal();
+        return;
+    }
+    const double layout_gap = placement.effective_gap;
     const BoundingBoxf bed_extent = get_extents(printable_area->values);
     const Polygon bed_polygon = Polygon::new_scale(printable_area->values);
     const auto *bed_exclude_area = full_config.opt<ConfigOptionPoints>("bed_exclude_area");
@@ -19124,10 +19136,11 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     size_t selected_columns = 0;
     size_t selected_rows = 0;
     double best_score = std::numeric_limits<double>::max();
-    for (size_t columns = 1; columns <= plan.rows.size(); ++columns) {
+    const size_t maximum_columns = placement.one_per_row ? 1 : plan.rows.size();
+    for (size_t columns = 1; columns <= maximum_columns; ++columns) {
         const size_t rows = (plan.rows.size() + columns - 1) / columns;
-        const double width = double(columns) * footprint_width + double(columns - 1) * config.pane_gap;
-        const double depth = double(rows) * footprint_depth + double(rows - 1) * config.pane_gap;
+        const double width = double(columns) * footprint_width + double(columns - 1) * layout_gap;
+        const double depth = double(rows) * footprint_depth + double(rows - 1) * layout_gap;
         if (width + 2. * margin > bed_extent.size().x() || depth + 2. * margin > bed_extent.size().y())
             continue;
         const Vec2d candidate_min = bed_extent.center() - 0.5 * Vec2d(width, depth);
@@ -19136,9 +19149,9 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
             const size_t grid_row = row_index / columns;
             const size_t grid_column = row_index % columns;
             const double x = candidate_min.x() + 0.5 * footprint_width +
-                             double(grid_column) * (footprint_width + config.pane_gap);
+                             double(grid_column) * (footprint_width + layout_gap);
             const double y = candidate_min.y() + depth - 0.5 * footprint_depth -
-                             double(grid_row) * (footprint_depth + config.pane_gap);
+                             double(grid_row) * (footprint_depth + layout_gap);
             const BoundingBox pane_box(Point::new_scale(x - 0.5 * footprint_width, y - 0.5 * footprint_depth),
                                        Point::new_scale(x + 0.5 * footprint_width, y + 0.5 * footprint_depth));
             for (const Point &corner : pane_box.polygon().points)
@@ -19159,7 +19172,7 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
         }
     }
     if (selected_columns == 0) {
-        MessageDialog(this, _L("The calibration panes do not fit on the active build plate. Reduce their size, gap, or count."),
+        MessageDialog(this, _L("The calibration panes do not fit on the active build plate with the printer's sequential-print clearance. Reduce their size, height, or count."),
                       project_name, wxICON_WARNING | wxOK).ShowModal();
         return;
     }
@@ -19197,8 +19210,8 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     if (config.labels && config.pane_extruder != config.label_extruder)
         print_config.set_key_value("enable_prime_tower", new ConfigOptionBool(false));
 
-    const double grid_width = double(selected_columns) * footprint_width + double(selected_columns - 1) * config.pane_gap;
-    const double grid_depth = double(selected_rows) * footprint_depth + double(selected_rows - 1) * config.pane_gap;
+    const double grid_width = double(selected_columns) * footprint_width + double(selected_columns - 1) * layout_gap;
+    const double grid_depth = double(selected_rows) * footprint_depth + double(selected_rows - 1) * layout_gap;
     const Vec2d grid_min = bed_extent.center() - 0.5 * Vec2d(grid_width, grid_depth);
     const Vec3d plate_origin = get_partplate_list().get_curr_plate()->get_origin();
     const unsigned experiment_levels = config.design == PaneCalibrationDesign::Taguchi ? config.taguchi_levels :
@@ -19294,15 +19307,15 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
         for (size_t row_index = 0; row_index < plan.rows.size(); ++row_index) {
             const size_t grid_row = row_index / selected_columns;
             const size_t grid_column = row_index % selected_columns;
-            const double x = grid_min.x() + 0.5 * footprint_width + double(grid_column) * (footprint_width + config.pane_gap);
-            const double y = grid_min.y() + grid_depth - 0.5 * footprint_depth - double(grid_row) * (footprint_depth + config.pane_gap);
+            const double x = grid_min.x() + 0.5 * footprint_width + double(grid_column) * (footprint_width + layout_gap);
+            const double y = grid_min.y() + grid_depth - 0.5 * footprint_depth - double(grid_row) * (footprint_depth + layout_gap);
             for (double corner_x : {x - 0.5 * footprint_width, x + 0.5 * footprint_width})
                 for (double corner_y : {y - 0.5 * footprint_depth, y + 0.5 * footprint_depth})
                     if (!bed_polygon.contains(Point::new_scale(corner_x, corner_y)))
                         throw std::invalid_argument("The centered pane grid does not fit the active build-plate shape");
 
             ModelObject *object = model().add_object();
-            object->name = (config.tool == PaneCalibrationTool::ClearFilament ? "Clear pane " : "Ironing pane ") +
+            object->name = (config.tool == PaneCalibrationTool::ClearFilament ? "Transparent pane " : "Ironing pane ") +
                            std::to_string(row_index + 1);
             ModelVolume *pane = object->add_volume(make_pane_calibration_body(config, first_layer_height),
                                                     ModelVolumeType::MODEL_PART, false);

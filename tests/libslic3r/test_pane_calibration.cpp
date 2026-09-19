@@ -4,6 +4,7 @@
 
 #include <array>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -74,7 +75,7 @@ TEST_CASE("Supported Taguchi arrays are pairwise balanced", "[PaneCalibration]")
     }
 }
 
-TEST_CASE("Pane labels wrap only between factor tokens", "[PaneCalibration]")
+TEST_CASE("Pane labels keep one factor on each baseline", "[PaneCalibration]")
 {
     PaneCalibrationRow row {
         {PaneCalibrationFactor::NozzleTemperature, 270., 2},
@@ -82,8 +83,35 @@ TEST_CASE("Pane labels wrap only between factor tokens", "[PaneCalibration]")
         {PaneCalibrationFactor::FlowRatio, 1.04, 2},
         {PaneCalibrationFactor::LayerHeight, 0.3, 2},
     };
-    const std::vector<std::string> lines = pane_calibration_label_lines(row, 4, 10);
+    const std::vector<std::string> lines = pane_calibration_label_lines(row, 4, 17);
     REQUIRE(lines == std::vector<std::string>{"T=270", "S=41.7", "FR=1.04", "LH=0.3"});
+}
+
+TEST_CASE("Pane placement follows the printer sequential-clearance thresholds", "[PaneCalibration]")
+{
+    PaneCalibrationConfig config = default_pane_calibration_config(PaneCalibrationTool::ClearFilament);
+    config.labels = true;
+
+    const PaneCalibrationPlacementConstraints short_panes = pane_calibration_placement_constraints(
+        config, 16, 2.5, 72.5, 27.5, 140.);
+    REQUIRE(std::abs(short_panes.object_height - 1.5) < 1e-9);
+    REQUIRE(short_panes.effective_gap == 5.);
+    REQUIRE_FALSE(short_panes.requires_toolhead_clearance);
+    REQUIRE_FALSE(short_panes.one_per_row);
+
+    config.label_relief = 2.;
+    const PaneCalibrationPlacementConstraints toolhead_clearance = pane_calibration_placement_constraints(
+        config, 16, 2.5, 72.5, 27.5, 140.);
+    REQUIRE(toolhead_clearance.requires_toolhead_clearance);
+    REQUIRE(toolhead_clearance.effective_gap == 72.5);
+    REQUIRE_FALSE(toolhead_clearance.one_per_row);
+
+    config.pane_height = 30.;
+    REQUIRE(pane_calibration_placement_constraints(config, 16, 2.5, 72.5, 27.5, 140.).one_per_row);
+
+    config.pane_height = 141.;
+    REQUIRE_THROWS_AS(pane_calibration_placement_constraints(config, 16, 2.5, 72.5, 27.5, 140.),
+                      std::invalid_argument);
 }
 
 TEST_CASE("Pane calibration maps categorical values by level", "[PaneCalibration]")
@@ -125,5 +153,7 @@ TEST_CASE("Pane calibration creates body ears and editable label meshes", "[Pane
     const size_t plain_facets = make_pane_calibration_body(config, 0.2).facets_count();
     config.mouse_ears = true;
     REQUIRE(make_pane_calibration_body(config, 0.2).facets_count() > plain_facets);
-    REQUIRE_FALSE(make_pane_calibration_label({"T=270", "FR=1.04"}, 2., 2., 30., 30.).empty());
+    const TriangleMesh label = make_pane_calibration_label({"T=270", "FR=1.04"}, 2., 0.5, 30., 30.);
+    REQUIRE_FALSE(label.empty());
+    REQUIRE(std::abs(label.bounding_box().max.z() - 0.5) < 1e-6);
 }
