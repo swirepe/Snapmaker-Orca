@@ -167,6 +167,7 @@ void GLGizmosManager::switch_gizmos_icon_filename()
             break;
         case(EType::ThermalPattern):
             gizmo->set_icon_filename(m_is_dark ? "toolbar_thermal_pattern_dark.svg" : "toolbar_thermal_pattern.svg");
+            break;
         case(EType::Ironing):
             gizmo->set_icon_filename(m_is_dark ? "toolbar_fuzzy_skin_paint_dark.svg" : "toolbar_fuzzy_skin_paint.svg");
             break;

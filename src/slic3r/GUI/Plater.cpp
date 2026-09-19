@@ -24066,8 +24066,7 @@ void Plater::clear_before_change_mesh(int obj_idx)
     bool paint_removed = false;
     for (ModelVolume* mv : mo->volumes) {
         paint_removed |= !mv->supported_facets.empty() || !mv->seam_facets.empty() || !mv->mmu_segmentation_facets.empty() ||
-                         !mv->fuzzy_skin_facets.empty() || !mv->thermal_pattern_facets.empty();
-                         !mv->fuzzy_skin_facets.empty() || !mv->ironing_facets.empty();
+                         !mv->fuzzy_skin_facets.empty() || !mv->thermal_pattern_facets.empty() || !mv->ironing_facets.empty();
         mv->supported_facets.reset();
         mv->seam_facets.reset();
         mv->mmu_segmentation_facets.reset();

@@ -2427,6 +2427,7 @@ void Print::process(long long *time_cost_with_cache, bool use_cache)
             if (!model_volume1.fuzzy_skin_facets.equals(model_volume2.fuzzy_skin_facets))
                 return false;
             if (!model_volume1.thermal_pattern_facets.equals(model_volume2.thermal_pattern_facets))
+                return false;
             if (!model_volume1.ironing_facets.equals(model_volume2.ironing_facets))
                 return false;
             if (model_volume1.config.get() != model_volume2.config.get())

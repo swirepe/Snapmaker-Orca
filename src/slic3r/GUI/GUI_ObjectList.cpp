@@ -2577,6 +2577,7 @@ void ObjectList::del_info_item(const int obj_idx, InfoItemType type)
         Plater::TakeSnapshot(plater, _u8L("Remove paint-on thermal surface patterning"));
         for (ModelVolume *mv : (*m_objects)[obj_idx]->volumes)
             mv->thermal_pattern_facets.reset();
+        break;
     case InfoItemType::Ironing:
         cnv->get_gizmos_manager().reset_all_states();
         Plater::TakeSnapshot(plater, _u8L("Remove paint-on ironing"));
@@ -3751,27 +3752,14 @@ void ObjectList::update_info_items(size_t obj_idx, wxDataViewItemArray* selectio
         }
     }
 
-    for (const auto &[info_type, should_show] : {
-             std::pair{InfoItemType::FuzzySkin, model_object->is_fuzzy_skin_painted()},
-             std::pair{InfoItemType::ThermalPattern, model_object->is_thermal_pattern_painted()}}) {
-        wxDataViewItem item = m_objects_model->GetInfoItemByType(item_obj, info_type);
-        if (!item.IsOk() && should_show) {
-            m_objects_model->AddInfoChild(item_obj, info_type);
-            Expand(item_obj);
-            if (added_object)
-                wxGetApp().notification_manager()->push_updated_item_info_notification(info_type);
-        } else if (item.IsOk() && !should_show) {
-            if (!selections)
-                Unselect(item);
-            m_objects_model->Delete(item);
-        }
-    }
     auto update_paint_info = [&](InfoItemType type, bool should_show) {
         wxDataViewItem item = m_objects_model->GetInfoItemByType(item_obj, type);
         const bool shows = item.IsOk();
         if (!shows && should_show) {
             m_objects_model->AddInfoChild(item_obj, type);
             Expand(item_obj);
+            if (added_object)
+                wxGetApp().notification_manager()->push_updated_item_info_notification(type);
         } else if (shows && !should_show) {
             if (!selections)
                 Unselect(item);
@@ -3784,6 +3772,7 @@ void ObjectList::update_info_items(size_t obj_idx, wxDataViewItemArray* selectio
         }
     };
     update_paint_info(InfoItemType::FuzzySkin, printer_technology() == ptFFF && model_object->is_fuzzy_skin_painted());
+    update_paint_info(InfoItemType::ThermalPattern, printer_technology() == ptFFF && model_object->is_thermal_pattern_painted());
     update_paint_info(InfoItemType::Ironing, printer_technology() == ptFFF && model_object->is_ironing_painted());
 
     {

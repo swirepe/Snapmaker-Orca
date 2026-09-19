@@ -8517,7 +8517,7 @@ void GLCanvas3D::_render_bed(const Transform3d& view_matrix, const Transform3d& 
           && m_gizmos.get_current_type() != GLGizmosManager::Seam
           && m_gizmos.get_current_type() != GLGizmosManager::MmSegmentation
           && m_gizmos.get_current_type() != GLGizmosManager::FuzzySkin
-          && m_gizmos.get_current_type() != GLGizmosManager::ThermalPattern);
+          && m_gizmos.get_current_type() != GLGizmosManager::ThermalPattern
           && m_gizmos.get_current_type() != GLGizmosManager::Ironing);
     */
     //bool show_texture = true;
