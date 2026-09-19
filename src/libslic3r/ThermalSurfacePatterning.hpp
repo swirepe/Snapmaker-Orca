@@ -9,8 +9,12 @@
 
 namespace Slic3r {
 
+class DynamicPrintConfig;
+
 bool thermal_pattern_calibration_values_valid(double base_temperature, double temperature_step,
                                               int max_level, double band_height);
+
+void apply_thermal_pattern_calibration(DynamicPrintConfig& config, std::size_t flow_variant, double temperature_step, int max_temperature);
 
 struct ThermalPatternSettings
 {

@@ -7,6 +7,7 @@
 #include "MainFrame.hpp"
 #include "Tab.hpp"
 #include "Widgets/DialogButtons.hpp"
+#include <wx/choice.h>
 #include <string>
 
 namespace Slic3r { namespace GUI {
@@ -30,6 +31,13 @@ int GetTextMax(wxWindow* parent, const std::vector<wxString>& labels)
     return text_size.x + parent->FromDIP(10);
 }
 
+size_t selected_filament_flow_variant(const PresetBundle& bundle, size_t tool, const DynamicPrintConfig& config)
+{
+    const std::vector<FilamentVolumeType> volume_types = bundle.get_filament_volume_types();
+    const FilamentVolumeType              volume_type  = tool < volume_types.size() ? volume_types[tool] : fvtStandard;
+    const auto*                           flow_support = config.option<ConfigOptionStrings>("filament_flow_support");
+    return flow_support == nullptr ? 0 : flow_variant_index(flow_support->values, to_string(volume_type));
+}
 }
 
 PA_Calibration_Dlg::PA_Calibration_Dlg(wxWindow* parent, wxWindowID id, Plater* plater)
@@ -478,17 +486,33 @@ Thermal_Pattern_Calibration_Dlg::Thermal_Pattern_Calibration_Dlg(wxWindow *paren
         settings->Add(row, 0, wxLEFT, FromDIP(3));
     };
 
-    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
-    const auto *base_temperatures = full_config.option<ConfigOptionInts>("nozzle_temperature");
-    const auto *pattern_steps = full_config.option<ConfigOptionFloats>("thermal_pattern_temperature_step");
-    const int base_temperature = base_temperatures == nullptr || base_temperatures->values.empty() ? 210 : base_temperatures->values.front();
-    const double pattern_step = pattern_steps == nullptr || pattern_steps->values.empty() ? 10.0 : pattern_steps->values.front();
-
     settings->AddSpacer(FromDIP(5));
-    add_input(_L("Base temperature:"), wxString::Format("%d", base_temperature), wxString::FromUTF8("℃"), m_ti_base);
-    add_input(_L("Temperature step:"), wxString::Format("%.1f", pattern_step), wxString::FromUTF8("℃"), m_ti_step);
+    auto* tool_row   = new wxBoxSizer(wxHORIZONTAL);
+    auto* tool_label = new wxStaticText(this, wxID_ANY, _L("Filament / tool:"), wxDefaultPosition, FromDIP(wxSize(190, -1)), wxALIGN_LEFT);
+    m_choice_tool    = new wxChoice(this, wxID_ANY, wxDefaultPosition, FromDIP(wxSize(260, -1)));
+    const auto& filament_presets = wxGetApp().preset_bundle->filament_presets;
+    for (size_t i = 0; i < filament_presets.size(); ++i)
+        m_choice_tool->Append(wxString::Format(_L("Tool %d: %s"), int(i + 1), from_u8(filament_presets[i]).c_str()));
+    if (m_choice_tool->IsEmpty())
+        m_choice_tool->Append(_L("Tool 1"));
+
+    int initial_tool = 0;
+    if (Tab* filament_tab = wxGetApp().get_tab(Preset::TYPE_FILAMENT); filament_tab != nullptr && filament_tab->get_combo_box() != nullptr) {
+        const int edited_tool = filament_tab->get_combo_box()->get_filament_idx();
+        if (edited_tool >= 0 && edited_tool < int(m_choice_tool->GetCount()))
+            initial_tool = edited_tool;
+    }
+    m_choice_tool->SetSelection(initial_tool);
+    tool_row->Add(tool_label, 0, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    tool_row->Add(m_choice_tool, 1, wxALL | wxALIGN_CENTER_VERTICAL, FromDIP(2));
+    settings->Add(tool_row, 0, wxLEFT | wxRIGHT | wxEXPAND, FromDIP(3));
+
+    add_input(_L("Base temperature:"), "210", wxString::FromUTF8("℃"), m_ti_base);
+    add_input(_L("Temperature step:"), "10.0", wxString::FromUTF8("℃"), m_ti_step);
     add_input(_L("Maximum level:"), "6", "", m_ti_levels);
     add_input(_L("Band height:"), "5", "mm", m_ti_band_height);
+    load_selected_tool_defaults();
+    m_choice_tool->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) { load_selected_tool_defaults(); });
     settings->AddSpacer(FromDIP(5));
     outer->Add(settings, 0, wxTOP | wxRIGHT | wxLEFT | wxEXPAND, FromDIP(10));
 
@@ -509,6 +533,28 @@ Thermal_Pattern_Calibration_Dlg::Thermal_Pattern_Calibration_Dlg(wxWindow *paren
     wxGetApp().UpdateDlgDarkUI(this);
     Layout();
     Fit();
+}
+
+size_t Thermal_Pattern_Calibration_Dlg::selected_tool() const
+{
+    const int selection = m_choice_tool == nullptr ? wxNOT_FOUND : m_choice_tool->GetSelection();
+    return selection == wxNOT_FOUND ? 0 : size_t(selection);
+}
+
+void Thermal_Pattern_Calibration_Dlg::load_selected_tool_defaults()
+{
+    const DynamicPrintConfig full_config       = wxGetApp().preset_bundle->full_config();
+    const auto*              base_temperatures = full_config.option<ConfigOptionInts>("nozzle_temperature");
+    const auto*              pattern_steps     = full_config.option<ConfigOptionFloats>("thermal_pattern_temperature_step");
+    const unsigned int       tool              = unsigned(selected_tool());
+    const int                base_temperature  = base_temperatures == nullptr || base_temperatures->values.empty() ?
+                                                     210 :
+                                                     get_value_at(full_config, *base_temperatures, ConfigFlowDomain::Filament, tool);
+    const double             pattern_step      = pattern_steps == nullptr || pattern_steps->values.empty() ?
+                                                     10.0 :
+                                                     get_value_at(full_config, *pattern_steps, ConfigFlowDomain::Filament, tool);
+    m_ti_base->GetTextCtrl()->SetValue(wxString::Format("%d", base_temperature));
+    m_ti_step->GetTextCtrl()->SetValue(wxString::Format("%.1f", pattern_step));
 }
 
 bool Thermal_Pattern_Calibration_Dlg::read_params(Calib_Params &params, bool warn_about_filament_limit)
@@ -532,10 +578,12 @@ bool Thermal_Pattern_Calibration_Dlg::read_params(Calib_Params &params, bool war
     params.thermal_max_level = static_cast<int>(levels);
     params.end = params.start + params.step * levels;
     params.mode = CalibMode::Calib_Thermal_Pattern;
+    params.extruder_id       = int(selected_tool());
 
     const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
     const auto *machine_limit = full_config.option<ConfigOptionInts>("machine_max_nozzle_temperature");
-    const int hardware_max = machine_limit == nullptr || machine_limit->values.empty() ? 300 : machine_limit->values.front();
+    const int                hardware_max  = machine_limit == nullptr || machine_limit->values.empty() ? 300 :
+                                                                                                         machine_limit->get_at(size_t(params.extruder_id));
     if (params.end > hardware_max) {
         MessageDialog(this, wxString::Format(_L("The requested maximum temperature %.0f°C exceeds the machine limit of %d°C."),
                                              params.end, hardware_max),
@@ -545,7 +593,9 @@ bool Thermal_Pattern_Calibration_Dlg::read_params(Calib_Params &params, bool war
 
     if (warn_about_filament_limit) {
         const auto *filament_limit = full_config.option<ConfigOptionInts>("nozzle_temperature_range_high");
-        const int recommended_max = filament_limit == nullptr || filament_limit->values.empty() ? hardware_max : filament_limit->values.front();
+        const int   recommended_max = filament_limit == nullptr || filament_limit->values.empty() ?
+                                          hardware_max :
+                                          filament_limit->get_at(size_t(params.extruder_id));
         if (params.end > recommended_max) {
             MessageDialog warning(
                 this,
@@ -574,15 +624,22 @@ void Thermal_Pattern_Calibration_Dlg::on_apply(wxCommandEvent &)
     if (!read_params(params, true))
         return;
 
-    DynamicPrintConfig &config = wxGetApp().preset_bundle->filaments.get_edited_preset().config;
-    config.set_key_value("thermal_pattern_enabled", new ConfigOptionBools(1, true));
-    config.set_key_value("thermal_pattern_temperature_step", new ConfigOptionFloats(1, params.step));
-    config.set_key_value("thermal_pattern_max_temperature", new ConfigOptionInts(1, static_cast<int>(std::lround(params.end))));
-    Tab *filament_tab = wxGetApp().get_tab(Preset::TYPE_FILAMENT);
-    filament_tab->update_dirty();
-    filament_tab->reload_config();
+    Plater* plater = m_plater;
     EndModal(wxID_OK);
-    wxGetApp().CallAfter([filament_tab]() { filament_tab->save_preset(); });
+    wxGetApp().CallAfter([plater, params]() {
+        if (plater == nullptr || !plater->sidebar().edit_filament(size_t(params.extruder_id)))
+            return;
+
+        PresetBundle&       bundle     = *wxGetApp().preset_bundle;
+        DynamicPrintConfig& config     = bundle.filaments.get_edited_preset().config;
+        const size_t        flow_index = selected_filament_flow_variant(bundle, size_t(params.extruder_id), config);
+        apply_thermal_pattern_calibration(config, flow_index, params.step, static_cast<int>(std::lround(params.end)));
+
+        Tab* filament_tab = wxGetApp().get_tab(Preset::TYPE_FILAMENT);
+        filament_tab->update_dirty();
+        filament_tab->reload_config();
+        filament_tab->save_preset();
+    });
 }
 
 void Thermal_Pattern_Calibration_Dlg::on_dpi_changed(const wxRect &)

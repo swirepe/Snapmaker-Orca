@@ -4927,7 +4927,9 @@ LayerResult GCode::process_layer(const Print& print,
         const int level = m_layer_index <= 0 ? 0 : std::min(
             print.calib_params().thermal_max_level, static_cast<int>(std::floor(std::max(0., print_z - 0.01) / band_height)));
         const int temperature = static_cast<int>(std::lround(print.calib_params().start + level * print.calib_params().step));
-        gcode += writer().set_temperature(temperature);
+        // The calibration may target a tool other than the one that happened to be active at layer change.
+        // Wait for the selected tool to reach the base temperature before the first extrusion only.
+        gcode += writer().set_temperature(temperature, m_layer_index == 1, print.calib_params().extruder_id);
         gcode += Slic3r::format("; THERMAL_PATTERN_CALIBRATION level=%1% target=%2%C\n", level, temperature);
         break;
     }
@@ -5037,6 +5039,8 @@ LayerResult GCode::process_layer(const Print& print,
         // Transition from 1st to 2nd layer. Adjust nozzle temperatures as prescribed by the nozzle dependent
         // nozzle_temperature_initial_layer vs. temperature settings.
         for (const Extruder& extruder : m_writer.extruders()) {
+            if (print.calib_mode() == CalibMode::Calib_Thermal_Pattern && extruder.id() == unsigned(print.calib_params().extruder_id))
+                continue;
             if ((print.config().single_extruder_multi_material.value || m_ooze_prevention.enable) &&
                 extruder.id() != m_writer.extruder()->id())
                 // In single extruder multi material mode, set the temperature for the current extruder only.

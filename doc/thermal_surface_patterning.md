@@ -39,6 +39,11 @@ active printer/nozzle's hardware temperature limit.
 The process profile contains a **Thermal Surface Patterning** group under
 **Others**.
 
+The same group is available as a dedicated **Thermal Surface Patterning**
+category in object, part/modifier, and height-range settings. This makes the
+application mode and all regional overrides directly discoverable without
+searching the complete settings list.
+
 Normal controls:
 
 - Application mode: `Disabled`, `All eligible surfaces`, or `Painted surfaces`.
@@ -71,6 +76,11 @@ therefore support:
 A dedicated **Paint-on thermal patterning** gizmo provides brush, sphere,
 triangle, smart-fill, clipping, erase, erase-all, and undo behavior consistent
 with paint-on fuzzy skin.
+
+The paint gizmo reports when the selected object is not in **Painted surfaces**
+mode and can set that object override directly. It also reports when no active
+filament has thermal patterning enabled and points to the corresponding
+filament settings; painting is retained even while either switch is disabled.
 
 Painting is binary. Painted facets mark where the generated thermal pattern is
 eligible; they do not encode a requested temperature or shade. Thermal paint is
@@ -142,7 +152,8 @@ The Calibration menu contains **Thermal Surface Patterning**.
 
 The calibration dialog:
 
-1. Uses the active filament/extruder; its name is irrelevant.
+1. Lets the user choose the filament/extruder, defaulting to the tool currently
+   selected in Filament settings.
 2. Defaults the base temperature to that filament's normal nozzle temperature.
 3. Accepts temperature increment, number of levels, maximum target, and band
    height, constrained by the printer/nozzle hardware limit.
@@ -152,12 +163,13 @@ The calibration dialog:
    outer-wall tower and horizontal top-surface swatches.
 6. Applies deterministic levels `0..N`, labels every level in G-code metadata,
    and keeps the first layer and risky features at normal temperature.
-7. After physical inspection, accepts the highest usable level and saves the
-   increment and resulting ceiling to a newly named derived filament preset,
-   with thermal patterning enabled.
+7. After physical inspection, saves the increment and resulting ceiling to a
+   newly named derived filament preset, with thermal patterning enabled. Only
+   the selected tool's active flow variant is changed; other variant values are
+   preserved.
 
-Calibration uses the active tool and does not alter unrelated filament
-presets.
+Calibration assigns every generated object to the selected tool and does not
+alter unrelated filament presets.
 
 ## Compatibility and persistence
 

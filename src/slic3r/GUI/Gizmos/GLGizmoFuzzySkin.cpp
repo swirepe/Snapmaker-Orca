@@ -307,6 +307,44 @@ void GLGizmoFuzzySkin::on_render_input_window(float x, float y, float bottom_lim
 
     ImGui::Separator();
 
+    if (m_thermal_pattern) {
+        ModelObject*       model_object     = m_c->selection_info()->model_object();
+        DynamicPrintConfig effective_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+        effective_config.apply(model_object->config.get(), true);
+        const auto mode = effective_config.opt_enum<ThermalPatternMode>("thermal_pattern_mode");
+        if (mode != ThermalPatternMode::PaintedSurfaces) {
+            const float available_width = ImGui::GetContentRegionAvail().x;
+            m_imgui->text_wrapped(
+                mode == ThermalPatternMode::Disabled ?
+                    _L("Thermal patterning is disabled for this object. Painted facets will be saved but will not affect the print.") :
+                    _L("Thermal patterning currently applies to all eligible surfaces, so painted facets do not limit it."),
+                available_width);
+            if (m_imgui->button(_L("Use painted surfaces for this object"))) {
+                Plater::TakeSnapshot snapshot(wxGetApp().plater(), _u8L("Enable paint-on thermal surface patterning"));
+                model_object->config.set_key_value("thermal_pattern_mode",
+                                                   new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::PaintedSurfaces));
+                wxGetApp().plater()->changed_object(*model_object);
+                m_parent.set_as_dirty();
+            }
+        }
+
+        const DynamicPrintConfig full_config          = wxGetApp().preset_bundle->full_config();
+        const auto*              filament_enabled     = full_config.option<ConfigOptionBools>("thermal_pattern_enabled");
+        bool                     any_filament_enabled = false;
+        if (filament_enabled != nullptr && !filament_enabled->values.empty()) {
+            const size_t filament_count = wxGetApp().preset_bundle->filament_presets.size();
+            for (size_t filament_id = 0; filament_id < filament_count && !any_filament_enabled; ++filament_id)
+                any_filament_enabled = get_value_at(full_config, *filament_enabled, ConfigFlowDomain::Filament, unsigned(filament_id));
+        }
+        if (!any_filament_enabled) {
+            const float available_width = ImGui::GetContentRegionAvail().x;
+            m_imgui->text_wrapped(_L("No filament is enabled for thermal patterning. Enable it in Filament settings > Thermal Surface "
+                                     "Patterning, then set the calibrated temperature increment and ceiling."),
+                                  available_width);
+        }
+        ImGui::Separator();
+    }
+
     ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(6.0f, 10.0f));
     float get_cur_y = ImGui::GetContentRegionMax().y + ImGui::GetFrameHeight() + y;
     show_tooltip_information(caption_max, x, get_cur_y);

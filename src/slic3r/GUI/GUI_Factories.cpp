@@ -154,6 +154,16 @@ std::map<std::string, std::vector<SimpleSettingData>>  SettingsFactory::PART_CAT
     { L("Speed"), {{"outer_wall_speed", "",1},{"inner_wall_speed", "",2},{"sparse_infill_speed", "",3},{"top_surface_speed", "",4}, {"internal_solid_infill_speed", "",5},
                     {"enable_overhang_speed", "",6}, {"overhang_1_4_speed", "",7}, {"overhang_2_4_speed", "",8}, {"overhang_3_4_speed", "",9}, {"overhang_4_4_speed", "",10},
                     {"bridge_speed", "",11}, {"gap_infill_speed", "",12}, {"internal_bridge_speed", "", 13}
+                    }},
+    { L("Thermal Surface Patterning"), {{"thermal_pattern_mode", "",1},{"thermal_pattern_preset", "",2},{"thermal_pattern_seed", "",3},{"thermal_pattern_outer_walls", "",4},
+                    {"thermal_pattern_top_surfaces", "",5},{"thermal_pattern_max_level", "",6},{"thermal_pattern_top_max_level", "",7},{"thermal_pattern_band_median", "",8},
+                    {"thermal_pattern_band_sigma", "",9},{"thermal_pattern_band_min", "",10},{"thermal_pattern_band_max", "",11},{"thermal_pattern_dark_band_narrowing", "",12},
+                    {"thermal_pattern_stay_weight", "",13},{"thermal_pattern_adjacent_weight", "",14},{"thermal_pattern_two_away_weight", "",15},{"thermal_pattern_far_weight", "",16},
+                    {"thermal_pattern_darkness_bias", "",17},{"thermal_pattern_trend_persistence", "",18},{"thermal_pattern_trend_strength", "",19},{"thermal_pattern_accent_chance", "",20},
+                    {"thermal_pattern_accent_boost", "",21},{"thermal_pattern_accent_min", "",22},{"thermal_pattern_accent_max", "",23},{"thermal_pattern_top_group_min_time", "",24},
+                    {"thermal_pattern_top_group_max_lines", "",25},{"thermal_pattern_heat_tau", "",26},{"thermal_pattern_cool_tau", "",27},{"thermal_pattern_tolerance", "",28},
+                    {"thermal_pattern_surface_heat_credit", "",29},{"thermal_pattern_min_base_dwell", "",30},{"thermal_pattern_max_preheat", "",31},{"thermal_pattern_protect_risky_features", "",32},
+                    {"thermal_pattern_internal_policy", "",33},{"thermal_pattern_speed_assist", "",34},{"thermal_pattern_speed_max_factor", "",35},{"thermal_pattern_speed_min", "",36}
                     }}
 };
 
@@ -302,6 +312,7 @@ std::map<std::string, std::string> SettingsFactory::CATEGORY_ICON =
     { L("Infill")               , "blank_14"    },
     { L("Ironing")              , "blank_14"    },
     { L("Fuzzy Skin")           , "menu_fuzzy_skin"  },
+    { L("Thermal Surface Patterning"), "toolbar_thermal_pattern" },
     { L("Support")              , "support"     },
     { L("Speed")                , "blank_14"    },
     { L("Extruders")            , "blank_14"    },
