@@ -171,6 +171,7 @@ public:
                                                     std::function<void(int /*current*/, int /*total*/)> on_progress = nullptr);
     void add_custom_filament(wxColour new_col);
     void edit_filament();
+    bool edit_filament(size_t filament_id);
 
     void on_filaments_delete(size_t filament_id);
     void init_color_mix_panel(wxWindow* parent, wxSizer* sizer);

@@ -1,5 +1,7 @@
 #include "ThermalSurfacePatterning.hpp"
 
+#include "PrintConfig.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -15,6 +17,23 @@ constexpr double epsilon = 1e-9;
 template<class T> void hash_combine(std::size_t &seed, const T &value)
 {
     seed ^= std::hash<T>{}(value) + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+}
+
+template<typename Option, typename Value>
+void set_flow_variant_value(DynamicPrintConfig& config, const char* key, std::size_t index, Value value)
+{
+    Option* updated = nullptr;
+    if (const auto* current = config.option<Option>(key); current != nullptr)
+        updated = static_cast<Option*>(current->clone());
+    else
+        updated = new Option(1, value);
+
+    if (updated->values.empty())
+        updated->values.resize(index + 1, value);
+    else if (updated->values.size() <= index)
+        updated->values.resize(index + 1, updated->values.front());
+    updated->values[index] = value;
+    config.set_key_value(key, updated);
 }
 
 std::uint64_t splitmix64(std::uint64_t value)
@@ -33,6 +52,13 @@ bool thermal_pattern_calibration_values_valid(double base_temperature, double te
     return std::isfinite(base_temperature) && std::isfinite(temperature_step) && std::isfinite(band_height) &&
            base_temperature >= 1.0 && temperature_step > 0.0 && max_level >= 1 && max_level <= 20 && band_height >= 0.4 &&
            std::isfinite(base_temperature + temperature_step * max_level);
+}
+
+void apply_thermal_pattern_calibration(DynamicPrintConfig& config, std::size_t flow_variant, double temperature_step, int max_temperature)
+{
+    set_flow_variant_value<ConfigOptionBools>(config, "thermal_pattern_enabled", flow_variant, true);
+    set_flow_variant_value<ConfigOptionFloats>(config, "thermal_pattern_temperature_step", flow_variant, temperature_step);
+    set_flow_variant_value<ConfigOptionInts>(config, "thermal_pattern_max_temperature", flow_variant, max_temperature);
 }
 
 std::size_t ThermalPatternSettings::hash() const

@@ -15,6 +15,7 @@
 #include <wx/checkbox.h>
 #include <wx/choice.h>
 #include "wx/hyperlink.h"
+#include <wx/choice.h>
 #include <wx/radiobox.h>
 #include <wx/scrolwin.h>
 #include <wx/spinctrl.h>
@@ -84,7 +85,10 @@ protected:
     void on_generate(wxCommandEvent &event);
     void on_apply(wxCommandEvent &event);
     bool read_params(Calib_Params &params, bool warn_about_filament_limit);
+    size_t selected_tool() const;
+    void   load_selected_tool_defaults();
 
+    wxChoice*  m_choice_tool;
     TextInput *m_ti_base;
     TextInput *m_ti_step;
     TextInput *m_ti_levels;

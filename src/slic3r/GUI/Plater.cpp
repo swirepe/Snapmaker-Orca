@@ -8282,11 +8282,16 @@ void Sidebar::on_filaments_delete(size_t filament_id)
     }
 }
 
-void Sidebar::edit_filament() {
+void Sidebar::edit_filament() { edit_filament(size_t(p->m_menu_filament_id)); }
+
+bool Sidebar::edit_filament(size_t filament_id)
+{
     p->editing_filament = -1;
-    if (p->m_menu_filament_id >= 0 && p->m_menu_filament_id < p->combos_filament.size() &&
-        p->combos_filament[p->m_menu_filament_id]->switch_to_tab())
-        p->editing_filament = p->m_menu_filament_id; // sync with TabPresetComboxBox's m_filament_idx
+    if (filament_id < p->combos_filament.size() && p->combos_filament[filament_id]->switch_to_tab()) {
+        p->editing_filament = int(filament_id); // sync with TabPresetComboxBox's m_filament_idx
+        return true;
+    }
+    return false;
 }
 
 // Helper function: Check if target mixed filament depends on source physical filament
@@ -18705,17 +18710,17 @@ bool Plater::calib_thermal_pattern(const Calib_Params &params)
     }
 
     auto *print_config = &wxGetApp().preset_bundle->prints.get_edited_preset().config;
-    auto *filament_config = &wxGetApp().preset_bundle->filaments.get_edited_preset().config;
     auto *printer_config = &wxGetApp().preset_bundle->printers.get_edited_preset().config;
-    const int base_temperature = static_cast<int>(std::lround(params.start));
-    filament_config->set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts(1, base_temperature));
-    filament_config->set_key_value("nozzle_temperature", new ConfigOptionInts(1, base_temperature));
     print_config->set_key_value("layer_height", new ConfigOptionFloat(0.2));
     print_config->set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::Disabled));
     print_config->set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
     printer_config->set_key_value("resonance_avoidance", new ConfigOptionBool(false));
 
     for (ModelObject *object : model().objects) {
+        const int filament_id = params.extruder_id + 1;
+        object->config.set_key_value("wall_filament", new ConfigOptionInt(filament_id));
+        object->config.set_key_value("sparse_infill_filament", new ConfigOptionInt(filament_id));
+        object->config.set_key_value("solid_infill_filament", new ConfigOptionInt(filament_id));
         object->config.set_key_value("brim_type", new ConfigOptionEnum<BrimType>(btOuterOnly));
         object->config.set_key_value("brim_width", new ConfigOptionFloat(3.0));
         object->config.set_key_value("brim_object_gap", new ConfigOptionFloat(0.0));
@@ -18726,10 +18731,8 @@ bool Plater::calib_thermal_pattern(const Calib_Params &params)
     std::iota(object_indices.begin(), object_indices.end(), size_t(0));
     changed_objects(object_indices);
     wxGetApp().get_tab(Preset::TYPE_PRINT)->update_dirty();
-    wxGetApp().get_tab(Preset::TYPE_FILAMENT)->update_dirty();
     wxGetApp().get_tab(Preset::TYPE_PRINTER)->update_dirty();
     wxGetApp().get_tab(Preset::TYPE_PRINT)->reload_config();
-    wxGetApp().get_tab(Preset::TYPE_FILAMENT)->reload_config();
     wxGetApp().get_tab(Preset::TYPE_PRINTER)->reload_config();
 
     p->background_process.fff_print()->set_calib_params(params);

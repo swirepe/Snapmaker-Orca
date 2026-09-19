@@ -938,6 +938,19 @@ static std::vector<std::string> s_Preset_print_options {
     "max_travel_detour_distance",
     "fuzzy_skin", "fuzzy_skin_thickness", "fuzzy_skin_point_distance", "fuzzy_skin_first_layer", "fuzzy_skin_noise_type", "fuzzy_skin_mode", "fuzzy_skin_scale", "fuzzy_skin_octaves", "fuzzy_skin_persistence",
     "fuzzy_skin_top_surface", "fuzzy_skin_lower_surface", "fuzzy_skin_top_surface_first_layer", "fuzzy_skin_connect_walls", "fuzzy_skin_compensate_extrusion", "fuzzy_skin_bridge_compensation_multiplier", "fuzzy_skin_min_support_distance", "fuzzy_skin_ironing",
+    "thermal_pattern_mode", "thermal_pattern_preset", "thermal_pattern_seed",
+    "thermal_pattern_outer_walls", "thermal_pattern_top_surfaces",
+    "thermal_pattern_max_level", "thermal_pattern_top_max_level",
+    "thermal_pattern_band_median", "thermal_pattern_band_sigma", "thermal_pattern_band_min", "thermal_pattern_band_max",
+    "thermal_pattern_dark_band_narrowing",
+    "thermal_pattern_stay_weight", "thermal_pattern_adjacent_weight", "thermal_pattern_two_away_weight", "thermal_pattern_far_weight",
+    "thermal_pattern_darkness_bias", "thermal_pattern_trend_persistence", "thermal_pattern_trend_strength",
+    "thermal_pattern_accent_chance", "thermal_pattern_accent_boost", "thermal_pattern_accent_min", "thermal_pattern_accent_max",
+    "thermal_pattern_top_group_min_time", "thermal_pattern_top_group_max_lines",
+    "thermal_pattern_heat_tau", "thermal_pattern_cool_tau", "thermal_pattern_tolerance",
+    "thermal_pattern_surface_heat_credit", "thermal_pattern_min_base_dwell", "thermal_pattern_max_preheat",
+    "thermal_pattern_protect_risky_features", "thermal_pattern_internal_policy",
+    "thermal_pattern_speed_assist", "thermal_pattern_speed_max_factor", "thermal_pattern_speed_min",
     "max_volumetric_extrusion_rate_slope", "max_volumetric_extrusion_rate_slope_segment_length","extrusion_rate_smoothing_external_perimeter_only",
     "inner_wall_speed", "outer_wall_speed", "sparse_infill_speed", "internal_solid_infill_speed",
     "top_surface_speed", "support_speed", "support_object_xy_distance", "support_object_first_layer_gap", "support_interface_speed",
@@ -1028,6 +1041,7 @@ static std::vector<std::string> s_Preset_filament_options {
     "filament_multitool_ramming", "filament_multitool_ramming_volume", "filament_multitool_ramming_flow", "activate_chamber_temp_control",
     "filament_long_retractions_when_cut","filament_retraction_distances_when_cut", "idle_temperature",
     "filament_tower_ironing_area",
+    "thermal_pattern_enabled", "thermal_pattern_temperature_step", "thermal_pattern_max_temperature",
     "filament_flow_support"
     };
 

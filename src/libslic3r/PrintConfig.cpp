@@ -3095,7 +3095,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("thermal_pattern_mode", coEnum);
     def->label = L("Thermal surface patterning");
-    def->category = L("Others");
+    def->category = L("Thermal Surface Patterning");
     def->tooltip = L("Vary the nozzle target on selected exposed surfaces. Painted mode limits the effect to facets painted with the thermal-patterning tool.");
     def->enum_keys_map = &ConfigOptionEnum<ThermalPatternMode>::get_enum_values();
     def->enum_values = {"disabled", "all", "painted"};
@@ -3105,7 +3105,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("thermal_pattern_preset", coEnum);
     def->label = L("Pattern preset");
-    def->category = L("Others");
+    def->category      = L("Thermal Surface Patterning");
     def->tooltip = L("Starting character of the generated thermal pattern. Advanced values remain individually editable.");
     def->enum_keys_map = &ConfigOptionEnum<ThermalPatternPreset>::get_enum_values();
     def->enum_values = {"subtle", "natural", "dramatic"};
@@ -3117,7 +3117,7 @@ void PrintConfigDef::init_fff_params()
                                            double value, double min, double max, const char *sidetext = nullptr) {
         def = this->add(key, coFloat);
         def->label = label;
-        def->category = L("Others");
+        def->category = L("Thermal Surface Patterning");
         def->tooltip = tooltip;
         def->min = min;
         def->max = max;
@@ -3130,7 +3130,7 @@ void PrintConfigDef::init_fff_params()
                                          int value, int min, int max, ConfigOptionMode mode = comAdvanced) {
         def = this->add(key, coInt);
         def->label = label;
-        def->category = L("Others");
+        def->category = L("Thermal Surface Patterning");
         def->tooltip = tooltip;
         def->min = min;
         def->max = max;
@@ -3141,7 +3141,7 @@ void PrintConfigDef::init_fff_params()
                                           bool value, ConfigOptionMode mode = comAdvanced) {
         def = this->add(key, coBool);
         def->label = label;
-        def->category = L("Others");
+        def->category = L("Thermal Surface Patterning");
         def->tooltip = tooltip;
         def->mode = mode;
         def->set_default_value(new ConfigOptionBool(value));
@@ -3180,7 +3180,7 @@ void PrintConfigDef::init_fff_params()
 
     def = this->add("thermal_pattern_internal_policy", coEnum);
     def->label = L("Internal temperature policy");
-    def->category = L("Others");
+    def->category = L("Thermal Surface Patterning");
     def->tooltip = L("Strict restores normal temperature across ineligible extrusion. Thermal permits bounded target carry through safe internal moves.");
     def->enum_keys_map = &ConfigOptionEnum<ThermalPatternInternalPolicy>::get_enum_values();
     def->enum_values = {"strict", "thermal"};

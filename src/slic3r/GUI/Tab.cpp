@@ -2938,7 +2938,7 @@ optgroup->append_single_option_line("skirt_loops", "others_settings_skirt#loops"
         optgroup->append_single_option_line("fuzzy_skin_min_support_distance", "others_settings_fuzzy_skin#horizontal-fuzzy-surfaces");
         optgroup->append_single_option_line("fuzzy_skin_ironing", "others_settings_fuzzy_skin#fuzzy-ironing");
 
-        optgroup = page->new_optgroup(L("Thermal Surface Patterning"), L"thermal_surface_patterning");
+        optgroup = page->new_optgroup(L("Thermal Surface Patterning"), L"toolbar_thermal_pattern");
         optgroup->append_single_option_line("thermal_pattern_mode");
         optgroup->append_single_option_line("thermal_pattern_preset");
         optgroup->append_single_option_line("thermal_pattern_seed");
@@ -3008,7 +3008,9 @@ optgroup->append_single_option_line("skirt_loops", "others_settings_skirt#loops"
                     set_float("thermal_pattern_accent_max", 0.42);
                     set_float("thermal_pattern_top_group_min_time", 2.0);
                     set_int("thermal_pattern_top_group_max_lines", 96);
+                    set_float("thermal_pattern_surface_heat_credit", 0.75);
                     set_float("thermal_pattern_min_base_dwell", 2.5);
+                    set_float("thermal_pattern_max_preheat", 15.0);
                     set_float("thermal_pattern_speed_max_factor", 3.0);
                     set_float("thermal_pattern_speed_min", 35.0);
                 } else if (preset == ThermalPatternPreset::Dramatic) {
@@ -3146,6 +3148,50 @@ void TabPrint::toggle_options()
     }
 
     m_config_manipulation.toggle_print_fff_options(m_config, m_type < Preset::TYPE_COUNT, flow_variant_view_index());
+
+    if (m_config->has("thermal_pattern_mode") && m_active_page->get_field("thermal_pattern_mode") != nullptr) {
+        const bool thermal_enabled      = m_config->opt_enum<ThermalPatternMode>("thermal_pattern_mode") != ThermalPatternMode::Disabled;
+        const bool pattern_outer_walls  = thermal_enabled && m_config->opt_bool("thermal_pattern_outer_walls");
+        const bool pattern_top_surfaces = thermal_enabled && m_config->opt_bool("thermal_pattern_top_surfaces");
+
+        for (const char* key : {"thermal_pattern_preset",
+                                "thermal_pattern_seed",
+                                "thermal_pattern_outer_walls",
+                                "thermal_pattern_top_surfaces",
+                                "thermal_pattern_max_level",
+                                "thermal_pattern_band_median",
+                                "thermal_pattern_band_sigma",
+                                "thermal_pattern_band_min",
+                                "thermal_pattern_band_max",
+                                "thermal_pattern_dark_band_narrowing",
+                                "thermal_pattern_stay_weight",
+                                "thermal_pattern_adjacent_weight",
+                                "thermal_pattern_two_away_weight",
+                                "thermal_pattern_far_weight",
+                                "thermal_pattern_darkness_bias",
+                                "thermal_pattern_trend_persistence",
+                                "thermal_pattern_trend_strength",
+                                "thermal_pattern_accent_chance",
+                                "thermal_pattern_accent_boost",
+                                "thermal_pattern_accent_min",
+                                "thermal_pattern_accent_max",
+                                "thermal_pattern_heat_tau",
+                                "thermal_pattern_cool_tau",
+                                "thermal_pattern_tolerance",
+                                "thermal_pattern_surface_heat_credit",
+                                "thermal_pattern_min_base_dwell",
+                                "thermal_pattern_max_preheat",
+                                "thermal_pattern_protect_risky_features",
+                                "thermal_pattern_internal_policy",
+                                "thermal_pattern_speed_assist"})
+            toggle_option(key, thermal_enabled);
+
+        for (const char* key :
+             {"thermal_pattern_top_max_level", "thermal_pattern_top_group_min_time", "thermal_pattern_top_group_max_lines"})
+            toggle_option(key, pattern_top_surfaces);
+        for (const char* key : {"thermal_pattern_speed_max_factor", "thermal_pattern_speed_min"})
+            toggle_option(key, pattern_outer_walls && m_config->opt_bool("thermal_pattern_speed_assist"));
+    }
 
     Field *field = m_active_page->get_field("support_style");
     auto   support_type = m_config->opt_enum<SupportType>("support_type");
@@ -3523,20 +3569,50 @@ void TabPrintModel::on_value_change(const std::string& opt_key, const boost::any
         return;
     if (!m_object_configs.empty())
         wxGetApp().plater()->take_snapshot((boost::format("Change Option %s") % k).str());
-    auto inull = std::find(m_null_keys.begin(), m_null_keys.end(), k);
     // always add object config
-    bool set   = true; // *m_config->option(k) != *m_prints.get_selected_preset().config.option(k) || inull != m_null_keys.end();
+    bool                 set = true;
+    t_config_option_keys applied_keys{k};
+    if (k == "thermal_pattern_preset") {
+        const t_config_option_keys preset_value_keys{"thermal_pattern_max_level",
+                                                     "thermal_pattern_top_max_level",
+                                                     "thermal_pattern_band_median",
+                                                     "thermal_pattern_band_sigma",
+                                                     "thermal_pattern_band_min",
+                                                     "thermal_pattern_band_max",
+                                                     "thermal_pattern_dark_band_narrowing",
+                                                     "thermal_pattern_stay_weight",
+                                                     "thermal_pattern_adjacent_weight",
+                                                     "thermal_pattern_two_away_weight",
+                                                     "thermal_pattern_far_weight",
+                                                     "thermal_pattern_darkness_bias",
+                                                     "thermal_pattern_trend_persistence",
+                                                     "thermal_pattern_trend_strength",
+                                                     "thermal_pattern_accent_chance",
+                                                     "thermal_pattern_accent_boost",
+                                                     "thermal_pattern_accent_min",
+                                                     "thermal_pattern_accent_max",
+                                                     "thermal_pattern_top_group_min_time",
+                                                     "thermal_pattern_top_group_max_lines",
+                                                     "thermal_pattern_surface_heat_credit",
+                                                     "thermal_pattern_min_base_dwell",
+                                                     "thermal_pattern_max_preheat",
+                                                     "thermal_pattern_speed_max_factor",
+                                                     "thermal_pattern_speed_min"};
+        applied_keys.insert(applied_keys.end(), preset_value_keys.begin(), preset_value_keys.end());
+    }
     if (m_back_to_sys) {
         for (auto config : m_object_configs)
-            config.second->erase(k);
-        m_all_keys.erase(std::remove(m_all_keys.begin(), m_all_keys.end(), k), m_all_keys.end());
+            for (const std::string& key : applied_keys)
+                config.second->erase(key);
+        for (const std::string& key : applied_keys)
+            m_all_keys.erase(std::remove(m_all_keys.begin(), m_all_keys.end(), key), m_all_keys.end());
     } else if (set) {
         for (auto config : m_object_configs)
-            config.second->apply_only(*m_config, {k});
-        m_all_keys = concat(m_all_keys, {k});
+            config.second->apply_only(*m_config, applied_keys);
+        m_all_keys = concat(m_all_keys, applied_keys);
     }
-    if (inull != m_null_keys.end())
-        m_null_keys.erase(inull);
+    for (const std::string& key : applied_keys)
+        m_null_keys.erase(std::remove(m_null_keys.begin(), m_null_keys.end(), key), m_null_keys.end());
     if (m_back_to_sys || set) update_changed_ui();
     m_back_to_sys = false;
     TabPrint::on_value_change(k, value);
@@ -4202,7 +4278,7 @@ void TabFilament::build()
         line.append_option(optgroup->get_option("nozzle_temperature"));
         optgroup->append_line(line);
 
-        optgroup = page->new_optgroup(L("Thermal Surface Patterning"), L"thermal_surface_patterning");
+        optgroup = page->new_optgroup(L("Thermal Surface Patterning"), L"toolbar_thermal_pattern");
         optgroup->append_single_option_line("thermal_pattern_enabled");
         optgroup->append_single_option_line("thermal_pattern_temperature_step");
         optgroup->append_single_option_line("thermal_pattern_max_temperature");
@@ -4519,6 +4595,10 @@ void TabFilament::toggle_options()
         const size_t flow_index = flow_variant_view_index();
         bool pa = m_config->option<ConfigOptionBools>("enable_pressure_advance")->get_at(flow_index);
         toggle_option("pressure_advance", pa);
+
+        const bool thermal_enabled = m_config->option<ConfigOptionBools>("thermal_pattern_enabled")->get_at(flow_index);
+        toggle_option("thermal_pattern_temperature_step", thermal_enabled);
+        toggle_option("thermal_pattern_max_temperature", thermal_enabled);
 
         // BBS: 控制床温选项的显示
         auto support_multi_bed_types = is_BBL_printer || cfg.opt_bool("support_multi_bed_types");
