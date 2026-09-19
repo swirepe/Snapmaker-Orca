@@ -7536,8 +7536,10 @@ std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double
                           !protected_role && !path.is_force_no_extrusion() && (outer || top || expert_risky);
     const double nominal_duration = speed > EPSILON ? path_length_mm / speed : 0.0;
 
-    const double base = get_value_at(m_config, m_config.nozzle_temperature,
-                                     ConfigFlowDomain::Filament, tool);
+    const int regional_temperature = m_config.nozzle_temperature_override.value;
+    const double base = regional_temperature > 0 ? regional_temperature : get_value_at(
+        m_config, this->on_first_layer() ? m_config.nozzle_temperature_initial_layer : m_config.nozzle_temperature,
+        ConfigFlowDomain::Filament, tool);
     if (!eligible && !state.initialized)
         return inactive_tool_restore;
 
@@ -7718,18 +7720,29 @@ std::string GCode::set_region_process_overrides(ExtrusionRole role)
     }
 
     const int configured_temperature = m_config.nozzle_temperature_override.value;
+    auto synchronize_thermal_target = [this, extruder_id](int temperature) {
+        if (temperature <= 0 || extruder_id < 0 ||
+            static_cast<size_t>(extruder_id) >= m_thermal_pattern_tool_states.size())
+            return;
+        ThermalToolState &state = m_thermal_pattern_tool_states[extruder_id];
+        if (state.initialized)
+            state.target = temperature;
+    };
     if (configured_temperature > 0) {
         if (configured_temperature != m_last_region_temperature) {
             const bool wait = first_extrusion && m_wait_for_region_temperature;
             gcode += m_writer.set_temperature(unsigned(configured_temperature), wait, extruder_id);
+            synchronize_thermal_target(configured_temperature);
             m_last_region_temperature = configured_temperature;
         }
     } else if (m_last_region_temperature >= 0) {
         const int inherited_temperature = this->on_first_layer() ?
             get_value_at(m_config, m_config.nozzle_temperature_initial_layer, ConfigFlowDomain::Filament, extruder_id) :
             get_value_at(m_config, m_config.nozzle_temperature, ConfigFlowDomain::Filament, extruder_id);
-        if (inherited_temperature > 0)
+        if (inherited_temperature > 0) {
             gcode += m_writer.set_temperature(unsigned(inherited_temperature), false, extruder_id);
+            synchronize_thermal_target(inherited_temperature);
+        }
         m_last_region_temperature = -1;
     }
     m_region_temperature_initialized = true;

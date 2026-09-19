@@ -16,6 +16,21 @@ std::regex perimeters_regex("G1 X[-0-9.]* Y[-0-9.]* E[-0-9.]* ; perimeter");
 std::regex infill_regex("G1 X[-0-9.]* Y[-0-9.]* E[-0-9.]* ; infill");
 std::regex skirt_regex("G1 X[-0-9.]* Y[-0-9.]* E[-0-9.]* ; skirt");
 
+TEST_CASE("Thermal surface patterning uses the regional nozzle temperature as its baseline", "[PrintGCode][thermal_pattern][regional_settings]")
+{
+    DynamicPrintConfig config = default_print_config();
+    config.set_key_value("thermal_pattern_enabled", new ConfigOptionBools {true});
+    config.set_key_value("thermal_pattern_temperature_step", new ConfigOptionFloats {0.0});
+    config.set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::AllSurfaces));
+    config.set_key_value("nozzle_temperature_override", new ConfigOptionInt(235));
+    config.set_key_value("machine_start_gcode", new ConfigOptionString {});
+
+    const std::string gcode = Slic3r::Test::slice({make_cube(10., 10., 1.)}, config);
+
+    REQUIRE(gcode.find("THERMAL_PATTERN") != std::string::npos);
+    REQUIRE(gcode.find("target=235C") != std::string::npos);
+}
+
 SCENARIO( "PrintGCode basic functionality", "[PrintGCode]") {
     GIVEN("A default configuration and a print test object") {
         WHEN("the output is executed with no support material") {

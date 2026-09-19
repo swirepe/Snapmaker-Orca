@@ -6,8 +6,44 @@
 
 #include "test_data.hpp"
 
+#include <algorithm>
+
 using namespace Slic3r;
 using namespace Slic3r::Test;
+
+static bool painted_objects_share_slicing(bool thermal_pattern, bool ironing)
+{
+    Model model;
+    ModelObject *first = model.add_object("first", "", make_cube(5., 5., 0.4));
+    first->add_instance();
+    ModelObject *second = model.add_object(*first);
+    FacetsAnnotation &paint = thermal_pattern ? second->volumes.front()->thermal_pattern_facets :
+                              ironing        ? second->volumes.front()->ironing_facets :
+                                               second->volumes.front()->fuzzy_skin_facets;
+    if (thermal_pattern || ironing) {
+        paint.reserve(second->volumes.front()->mesh().facets_count());
+        paint.set_triangle_from_string(0, "1");
+        paint.shrink_to_fit();
+    }
+
+    Print print;
+    for (ModelObject *object : model.objects)
+        print.auto_assign_extruders(object);
+    print.apply(model, default_print_config());
+    print.process(nullptr, false);
+
+    const auto second_print_object = std::find_if(print.objects().begin(), print.objects().end(),
+        [second](const PrintObject *object) { return object->model_object()->id() == second->id(); });
+    REQUIRE(second_print_object != print.objects().end());
+    return (*second_print_object)->get_shared_object() != nullptr;
+}
+
+TEST_CASE("Paint masks keep otherwise identical objects in separate slicing jobs", "[Print][painting]")
+{
+    REQUIRE(painted_objects_share_slicing(false, false));
+    REQUIRE_FALSE(painted_objects_share_slicing(true, false));
+    REQUIRE_FALSE(painted_objects_share_slicing(false, true));
+}
 
 SCENARIO("PrintObject: Perimeter generation", "[PrintObject]") {
     GIVEN("20mm cube and default config") {
