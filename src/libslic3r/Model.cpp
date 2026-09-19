@@ -2571,7 +2571,11 @@ bool ModelVolume::blocks_all_extruders() const
     if (!this->is_non_traversable())
         return false;
     const auto *option = dynamic_cast<const ConfigOptionInts *>(this->config.option(NON_TRAVERSABLE_EXTRUDERS_KEY));
-    return option == nullptr || option->values.empty() || option->values.front() == 0;
+    // Fail safe when loading hand-edited or damaged project metadata. Zero is
+    // the canonical live-all sentinel; negative IDs are invalid and must not
+    // silently turn a keep-out into a volume that blocks no extruder.
+    return option == nullptr || option->values.empty() ||
+           std::any_of(option->values.begin(), option->values.end(), [](int stored_id) { return stored_id <= 0; });
 }
 
 bool ModelVolume::blocks_extruder(unsigned int extruder_id) const

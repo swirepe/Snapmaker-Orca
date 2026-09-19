@@ -50,6 +50,14 @@ TEST_CASE("Non-traversable volume stores live-all and explicit extruder rules", 
 
     volume->set_blocked_extruders({});
     CHECK(volume->blocks_all_extruders());
+
+    volume->config.set_key_value("non_traversable_extruders", new ConfigOptionInts{-1});
+    CHECK(volume->blocks_all_extruders());
+    CHECK(volume->blocks_extruder(0));
+
+    volume->config.set_key_value("non_traversable_extruders", new ConfigOptionInts{2, 0});
+    CHECK(volume->blocks_all_extruders());
+    CHECK(volume->blocks_extruder(8));
 }
 
 TEST_CASE("Non-traversable volume type has a stable project string", "[NonTraversableTravel][Model]")
