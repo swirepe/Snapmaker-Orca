@@ -219,8 +219,13 @@ std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           po
             if (xy_length > EPSILON) {
                 const double dz              = offset - result.back().z_offset;
                 const double geometric_ratio = std::hypot(xy_length, dz) / xy_length;
-                extrusion_multiplier = type == FuzzySurfaceType::Lower ? std::pow(geometric_ratio, config.bridge_compensation_multiplier) :
-                                                                         geometric_ratio;
+                const double compensated = type == FuzzySurfaceType::Lower ?
+                                               std::pow(geometric_ratio, config.bridge_compensation_multiplier) :
+                                               geometric_ratio;
+                constexpr double max_extrusion_multiplier = 5.0;
+                extrusion_multiplier = std::isfinite(compensated) ?
+                                           std::clamp(compensated, 1.0, max_extrusion_multiplier) :
+                                           max_extrusion_multiplier;
             }
         }
         result.push_back({points[idx], offset, extrusion_multiplier});

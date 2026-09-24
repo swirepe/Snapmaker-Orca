@@ -9,6 +9,8 @@
 
 namespace Slic3r {
 
+class DynamicPrintConfig;
+
 enum class FuzzySkinCalibrationMode { TextureMatrix, IroningComparison, SupportedUnderside };
 
 enum class FuzzySkinCalibrationLayout { ConnectedPanel, BreakawayCoupons };
@@ -63,6 +65,7 @@ std::string              fuzzy_skin_calibration_value_label(double value);
 FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibrationConfig& config);
 FuzzySkinCalibrationBedPatch fuzzy_skin_calibration_bed_patch(const FuzzySkinCalibrationConfig& config);
 double fuzzy_skin_calibration_bed_thickness(const FuzzySkinCalibrationConfig& config, double thickness, double first_layer_height);
+void apply_fuzzy_skin_calibration_print_config(DynamicPrintConfig& config);
 
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height);
 TriangleMesh make_fuzzy_skin_calibration_bridge(double width, double depth, double roof_height, double roof_thickness);

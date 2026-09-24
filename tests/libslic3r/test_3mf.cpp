@@ -3,6 +3,7 @@
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/Format/STL.hpp"
+#include "libslic3r/PrintConfig.hpp"
 
 #include <boost/filesystem/operations.hpp>
 
@@ -80,6 +81,72 @@ SCENARIO("Export+Import geometry to/from 3mf file cycle", "[3mf]") {
     }
 }
 
+TEST_CASE("Fuzzy modifier settings survive a standard 3MF round trip", "[3mf][FuzzySurface]")
+{
+    Model source;
+    const std::string source_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
+    load_stl(source_file.c_str(), &source);
+    source.add_default_instances();
+
+    ModelConfig &config = source.objects.front()->volumes.front()->config;
+    config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::AllWalls));
+    config.set_key_value("fuzzy_skin_thickness", new ConfigOptionFloat(0.47));
+    config.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(0.83));
+    config.set_key_value("fuzzy_skin_first_layer", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_noise_type", new ConfigOptionEnum<NoiseType>(NoiseType::Billow));
+    config.set_key_value("fuzzy_skin_mode", new ConfigOptionEnum<FuzzySkinMode>(FuzzySkinMode::Combined));
+    config.set_key_value("fuzzy_skin_scale", new ConfigOptionFloat(1.7));
+    config.set_key_value("fuzzy_skin_octaves", new ConfigOptionInt(6));
+    config.set_key_value("fuzzy_skin_persistence", new ConfigOptionFloat(0.73));
+    config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_top_surface_first_layer", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_connect_walls", new ConfigOptionBool(false));
+    config.set_key_value("fuzzy_skin_compensate_extrusion", new ConfigOptionBool(false));
+    config.set_key_value("fuzzy_skin_bridge_compensation_multiplier", new ConfigOptionFloat(2.4));
+    config.set_key_value("fuzzy_skin_min_support_distance", new ConfigOptionFloat(0.31));
+    config.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(true));
+
+    const std::vector<std::string> keys {"fuzzy_skin",
+                                         "fuzzy_skin_thickness",
+                                         "fuzzy_skin_point_distance",
+                                         "fuzzy_skin_first_layer",
+                                         "fuzzy_skin_noise_type",
+                                         "fuzzy_skin_mode",
+                                         "fuzzy_skin_scale",
+                                         "fuzzy_skin_octaves",
+                                         "fuzzy_skin_persistence",
+                                         "fuzzy_skin_top_surface",
+                                         "fuzzy_skin_lower_surface",
+                                         "fuzzy_skin_top_surface_first_layer",
+                                         "fuzzy_skin_bed_surface",
+                                         "fuzzy_skin_connect_walls",
+                                         "fuzzy_skin_compensate_extrusion",
+                                         "fuzzy_skin_bridge_compensation_multiplier",
+                                         "fuzzy_skin_min_support_distance",
+                                         "fuzzy_skin_ironing"};
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("fuzzy-settings-%%%%-%%%%.3mf");
+    REQUIRE(store_3mf(output.string().c_str(), &source, nullptr, false));
+
+    Model loaded;
+    DynamicPrintConfig loaded_config;
+    ConfigSubstitutionContext context {ForwardCompatibilitySubstitutionRule::Disable};
+    REQUIRE(load_3mf(output.string().c_str(), loaded_config, context, &loaded, false));
+    boost::filesystem::remove(output);
+
+    REQUIRE(loaded.objects.size() == 1);
+    REQUIRE(loaded.objects.front()->volumes.size() == 1);
+    const ModelConfig &loaded_volume_config = loaded.objects.front()->volumes.front()->config;
+    for (const std::string &key : keys) {
+        INFO(key);
+        REQUIRE(loaded_volume_config.has(key));
+        REQUIRE(loaded_volume_config.opt_serialize(key) == config.opt_serialize(key));
+    }
+}
+
 SCENARIO("2D convex hull of sinking object", "[3mf]") {
     GIVEN("model") {
         // load a model
@@ -128,4 +195,3 @@ SCENARIO("2D convex hull of sinking object", "[3mf]") {
         }
     }
 }
-

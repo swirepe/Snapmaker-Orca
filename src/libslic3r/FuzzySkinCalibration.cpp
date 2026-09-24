@@ -1,5 +1,7 @@
 #include "FuzzySkinCalibration.hpp"
 
+#include "PrintConfig.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -142,6 +144,11 @@ double fuzzy_skin_calibration_bed_thickness(const FuzzySkinCalibrationConfig& co
         first_layer_height <= 0.0)
         throw std::invalid_argument("Calibration bed texture dimensions must be positive");
     return 0.25 * first_layer_height * std::clamp(thickness / config.thickness.maximum, 0.0, 1.0);
+}
+
+void apply_fuzzy_skin_calibration_print_config(DynamicPrintConfig& config)
+{
+    config.set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByLayer));
 }
 
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height)

@@ -92,6 +92,27 @@ TEST_CASE("Lower fuzzy paths displace downward and use bridge compensation", "[F
     }
 }
 
+TEST_CASE("Fuzzy surface extrusion compensation stays finite and bounded", "[FuzzySurface]")
+{
+    Polyline polyline;
+    polyline.points = {Point(scale_(0.0), scale_(0.0)), Point(scale_(1.0), scale_(0.0))};
+
+    FuzzySurfaceConfig config;
+    config.point_distance                 = 0.01;
+    config.displacement                   = 1.0;
+    config.connect_boundaries             = false;
+    config.compensate_extrusion            = true;
+    config.bridge_compensation_multiplier = 10.0;
+
+    const auto points = fuzzy_surface_points(polyline, 0.8, FuzzySurfaceType::Lower, config);
+    REQUIRE_FALSE(points.empty());
+    for (const FuzzySurfacePoint& point : points) {
+        REQUIRE(std::isfinite(point.extrusion_multiplier));
+        REQUIRE(point.extrusion_multiplier >= 1.0);
+        REQUIRE(point.extrusion_multiplier <= 5.0);
+    }
+}
+
 TEST_CASE("Horizontal fuzzy subdivision ignores degenerate source segments", "[FuzzySurface]")
 {
     Polyline polyline;
@@ -225,6 +246,16 @@ TEST_CASE("Calibration maps bed texture values proportionally into the safe cap"
     REQUIRE(first == Catch::Approx(0.005));
     REQUIRE(last == Catch::Approx(0.05));
     REQUIRE(first < last);
+}
+
+TEST_CASE("Fuzzy calibration always uses by-layer printing", "[FuzzySurface][Calibration]")
+{
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    config.set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByObject));
+
+    apply_fuzzy_skin_calibration_print_config(config);
+
+    REQUIRE(config.opt_enum<PrintSequence>("print_sequence") == PrintSequence::ByLayer);
 }
 
 TEST_CASE("Fuzzy skin calibration labels preserve hundredths", "[FuzzySurface][Calibration]")

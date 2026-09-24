@@ -18985,6 +18985,9 @@ bool Plater::calib_fuzzy_skin(const FuzzySkinCalibrationConfig& config)
         return false;
     wxGetApp().mainframe->select_tab(size_t(MainFrame::tp3DEditor));
 
+    DynamicPrintConfig& print_config = wxGetApp().preset_bundle->prints.get_edited_preset().config;
+    apply_fuzzy_skin_calibration_print_config(print_config);
+
     const Vec2d         bed_center   = bed_extent.center();
     const Vec3d         plate_origin = get_partplate_list().get_curr_plate()->get_origin();
     const double        first_layer_height = std::max(0.01, full_config.opt_float("initial_layer_print_height"));

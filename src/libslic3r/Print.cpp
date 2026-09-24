@@ -18,6 +18,7 @@
 #include "Utils.hpp"
 #include "PrintConfig.hpp"
 #include "FilamentHotBedNozzleRules.hpp"
+#include "Feature/FuzzySkin/FuzzySkin.hpp"
 #include "Model.hpp"
 #include "format.hpp"
 #include <float.h>
@@ -57,6 +58,32 @@ PrintRegion::PrintRegion(PrintRegionConfig &&config) : PrintRegion(std::move(con
 namespace {
 
 constexpr double LOCAL_Z_PERIMETER_MASK_EXPAND_MM = 0.10;
+
+double effective_fuzzy_max_z(const PrintObject& object, double nominal_max_z)
+{
+    const double first_layer_height = object.print()->config().initial_layer_print_height.value;
+    double       effective_max_z    = nominal_max_z;
+    for (const std::reference_wrapper<const PrintRegion>& region_ref : object.all_regions()) {
+        const PrintRegionConfig& config = region_ref.get().config();
+        if (config.fuzzy_skin.value == FuzzySkinType::None || config.fuzzy_skin_thickness.value <= EPSILON ||
+            config.fuzzy_skin_point_distance.value <= EPSILON)
+            continue;
+
+        if (config.fuzzy_skin_top_surface.value &&
+            (config.fuzzy_skin_top_surface_first_layer.value || nominal_max_z > first_layer_height + EPSILON))
+            effective_max_z = std::max(effective_max_z, nominal_max_z + config.fuzzy_skin_thickness.value);
+        if (config.fuzzy_skin_bed_surface.value)
+            effective_max_z = std::max(effective_max_z,
+                                       first_layer_height + Feature::FuzzySkin::fuzzy_bed_surface_displacement(
+                                                                config.fuzzy_skin_thickness.value, first_layer_height));
+    }
+    return effective_max_z;
+}
+
+double effective_fuzzy_max_z_scaled(const PrintObject& object)
+{
+    return scale_(effective_fuzzy_max_z(object, unscale<double>(object.max_z())));
+}
 
 struct LocalZWipeTowerToolchange
 {
@@ -1059,6 +1086,13 @@ std::vector<size_t> Print::layers_sorted_for_object(float start, float end, std:
     return idx_of_object_sorted;
 };
 
+bool Print::is_all_objects_are_short() const
+{
+    return std::all_of(this->objects().begin(), this->objects().end(), [this](const PrintObject* object) {
+        return effective_fuzzy_max_z_scaled(*object) < scale_(this->config().nozzle_height.value);
+    });
+}
+
 StringObjectException Print::sequential_print_clearance_valid(const Print &print, Polygons *polygons, std::vector<std::pair<Polygon, float>>* height_polygons)
 {
     StringObjectException single_object_exception;
@@ -1172,7 +1206,7 @@ StringObjectException Print::sequential_print_clearance_valid(const Print &print
                     }
                 }
                 struct print_instance_info print_info {&instance, convex_hull.bounding_box(), convex_hull};
-                print_info.height = instance.print_object->height();
+                print_info.height = effective_fuzzy_max_z_scaled(*instance.print_object);
                 print_info.object_index = find_object_index(print.model(), print_object->model_object());
                 print_instance_with_bounding_box.push_back(std::move(print_info));
                 convex_hulls_other.emplace_back(std::move(convex_hull));
@@ -1362,7 +1396,7 @@ StringObjectException Print::sequential_print_clearance_valid(const Print &print
                     break;
                 }
             }
-            if (height < inst->print_object->max_z())
+            if (height < effective_fuzzy_max_z_scaled(*inst->print_object))
                 too_tall_instances[inst] = std::make_pair(print_instance_with_bounding_box[k].hull_polygon, unscaled<double>(height));
         }
 
@@ -1635,14 +1669,16 @@ StringObjectException Print::validate(StringObjectException *warning, Polygons* 
             Vec3d test =this->shrinkage_compensation();
             const double shrinkage_compensation_z = this->shrinkage_compensation().z();
             
-            if (shrinkage_compensation_z != 1. && layers.back() > (this->config().printable_height / shrinkage_compensation_z + EPSILON)) {
+            const double effective_max_z = effective_fuzzy_max_z(print_object, layers.back());
+            if (shrinkage_compensation_z != 1. &&
+                effective_max_z > (this->config().printable_height / shrinkage_compensation_z + EPSILON)) {
                 // The object exceeds the maximum build volume height because of shrinkage compensation.
                 return StringObjectException{
                     Slic3r::format(_u8L("While the object %1% itself fits the build volume, it exceeds the maximum build volume height because of material shrinkage compensation."), print_object.model_object()->name),
                     print_object.model_object(),
                     ""
                 };
-            } else if (layers.back() > this->config().printable_height + EPSILON) {
+            } else if (effective_max_z > this->config().printable_height + EPSILON) {
                 // Test whether the last slicing plane is below or above the print volume.
                 return StringObjectException{
                     0.5 * (layers[layers.size() - 2] + layers.back()) > this->config().printable_height + EPSILON ?

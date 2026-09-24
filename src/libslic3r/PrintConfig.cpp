@@ -3084,7 +3084,8 @@ void PrintConfigDef::init_fff_params()
     def           = this->add("fuzzy_skin_compensate_extrusion", coBool);
     def->label    = L("Compensate fuzzy-surface extrusion");
     def->category = L("Others");
-    def->tooltip  = L("Increase extrusion to account for the additional distance traveled by non-planar fuzzy-surface segments.");
+    def->tooltip  = L("Increase extrusion to account for the additional distance traveled by non-planar fuzzy-surface segments. The "
+                      "effective multiplier is capped at 5x to prevent unsafe flow spikes.");
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
 
