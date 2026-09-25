@@ -136,12 +136,12 @@ std::string GCodeWriter::set_temperature(unsigned int temperature, GCodeFlavor f
     return gcode.str();
 }
 
-std::string GCodeWriter::set_temperature(unsigned int temperature, bool wait, int tool) const
+std::string GCodeWriter::set_temperature(unsigned int temperature, bool wait, int tool, std::string comment) const
 {
     // set tool to -1 to make sure we won't emit T parameter for single extruder or SEMM
     if (!this->multiple_extruders || m_single_extruder_multi_material)
         tool = -1;
-    return set_temperature(temperature, this->config.gcode_flavor, wait, tool);
+    return set_temperature(temperature, this->config.gcode_flavor, wait, tool, std::move(comment));
 }
 
 // BBS
