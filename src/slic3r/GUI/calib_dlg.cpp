@@ -1153,7 +1153,12 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
     SetForegroundColour(wxColour("#363636"));
     SetFont(Label::Body_14);
 
-    const PaneCalibrationConfig defaults = default_pane_calibration_config(tool);
+    const DynamicPrintConfig    full_config              = wxGetApp().preset_bundle->full_config();
+    const auto*                 initial_nozzle_diameters = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
+    const double                default_nozzle           = initial_nozzle_diameters == nullptr || initial_nozzle_diameters->values.empty() ?
+                                                               0.4 :
+                                                               initial_nozzle_diameters->values.front();
+    const PaneCalibrationConfig defaults                 = default_pane_calibration_config(tool, default_nozzle);
     auto *outer = new wxBoxSizer(wxVERTICAL);
     SetSizer(outer);
     auto *scroll = new wxScrolledWindow(this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxVSCROLL);
@@ -1269,7 +1274,6 @@ Pane_Calibration_Dlg::Pane_Calibration_Dlg(wxWindow *parent, wxWindowID id, Plat
     option_row->Add(m_labels, 0);
     geometry_box->Add(option_row, 0, wxLEFT | wxRIGHT | wxBOTTOM, FromDIP(6));
 
-    const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
     const auto *nozzle_diameters = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
     const int extruder_count = std::max<int>(1, nozzle_diameters == nullptr ? 1 : int(nozzle_diameters->values.size()));
     auto *extruder_row = new wxBoxSizer(wxHORIZONTAL);
@@ -1420,8 +1424,12 @@ void Pane_Calibration_Dlg::refresh_preview()
     m_label_extruder->Enable(m_labels->GetValue());
     try {
         const PaneCalibrationConfig config = read_config();
-        const PaneCalibrationPlan plan = build_pane_calibration_plan(config);
         const DynamicPrintConfig full_config = wxGetApp().preset_bundle->full_config();
+        const auto*                 nozzle_diameters = full_config.opt<ConfigOptionFloats>("nozzle_diameter");
+        if (nozzle_diameters == nullptr || config.pane_extruder < 1 || size_t(config.pane_extruder) > nozzle_diameters->values.size())
+            throw std::invalid_argument(L("The selected pane extruder does not define a usable nozzle diameter"));
+        validate_pane_calibration_machine_limits(config, nozzle_diameters->values[size_t(config.pane_extruder - 1)]);
+        const PaneCalibrationPlan                 plan      = build_pane_calibration_plan(config);
         const PaneCalibrationPlacementConstraints placement = pane_calibration_placement_constraints(
             config, plan.rows.size(), full_config.opt_float("nozzle_height"),
             full_config.opt_float("extruder_clearance_radius"),
@@ -1435,7 +1443,7 @@ void Pane_Calibration_Dlg::refresh_preview()
         m_preview->SetForegroundColour(GetForegroundColour());
         m_generate->Enable(true);
     } catch (const std::exception &error) {
-        m_preview->SetLabel(from_u8(error.what()));
+        m_preview->SetLabel(_(error.what()));
         m_preview->SetForegroundColour(wxColour(190, 45, 45));
         m_generate->Enable(false);
     }

@@ -93,6 +93,22 @@ struct PaneCalibrationPlacementConstraints
     bool   one_per_row {false};
 };
 
+class ModelObject;
+
+enum class PaneCalibrationLabelScheduleStatus {
+    None,
+    Ready,
+    MultipleLabelExtruders,
+    GeometryOverlap,
+};
+
+struct PaneCalibrationLabelSchedule
+{
+    PaneCalibrationLabelScheduleStatus status{PaneCalibrationLabelScheduleStatus::None};
+    double                             label_start_z{0.};
+    unsigned                           label_extruder{0};
+};
+
 std::vector<double> pane_calibration_linear_values(double minimum, double maximum, unsigned levels);
 
 // Returns an orthogonal array containing zero-based level indices. The smallest
@@ -116,7 +132,18 @@ std::string pane_calibration_format_value(PaneCalibrationFactor factor, double v
 std::vector<std::string> pane_calibration_label_lines(const PaneCalibrationRow &row, unsigned experiment_levels,
                                                       size_t maximum_characters_per_line);
 
-PaneCalibrationConfig default_pane_calibration_config(PaneCalibrationTool tool);
+// The transparent-filament layer-height sweep is capped to the active nozzle so
+// the untouched defaults are immediately usable with small-nozzle profiles.
+PaneCalibrationConfig default_pane_calibration_config(PaneCalibrationTool tool, double nozzle_diameter = 0.4);
+
+// Validates factor limits which depend on the selected pane extruder. Throws
+// std::invalid_argument with a user-facing explanation on failure.
+void validate_pane_calibration_machine_limits(const PaneCalibrationConfig& config, double nozzle_diameter);
+
+// Reconstructs the optional second label phase from persistent volume metadata
+// and current transformed geometry. This deliberately does not depend on the
+// transient calibration-dialog state, so it works after a 3MF round trip.
+PaneCalibrationLabelSchedule pane_calibration_label_schedule(const ModelObject& object, const Transform3d& object_transform);
 
 // Meshes are centered on the local XY origin. Label geometry starts at Z=0 so
 // callers may keep it as an independently editable volume and translate it to

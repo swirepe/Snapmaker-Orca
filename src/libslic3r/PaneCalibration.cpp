@@ -1,10 +1,14 @@
 #include "PaneCalibration.hpp"
 
+#include "I18N.hpp"
+#include "Model.hpp"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
@@ -440,7 +444,7 @@ std::vector<std::string> pane_calibration_label_lines(const PaneCalibrationRow &
     return lines;
 }
 
-PaneCalibrationConfig default_pane_calibration_config(PaneCalibrationTool tool)
+PaneCalibrationConfig default_pane_calibration_config(PaneCalibrationTool tool, double nozzle_diameter)
 {
     PaneCalibrationConfig config;
     config.tool        = tool;
@@ -449,23 +453,95 @@ PaneCalibrationConfig default_pane_calibration_config(PaneCalibrationTool tool)
     config.pane_height = tool == PaneCalibrationTool::ClearFilament ? 1. : 2.;
     config.label_relief = 0.5;
 
+    const double usable_nozzle        = std::isfinite(nozzle_diameter) && nozzle_diameter > 0. ? nozzle_diameter : 0.4;
+    const double layer_height_maximum = std::min({0.4, usable_nozzle, config.pane_height});
+    const double layer_height_minimum = std::min(0.1, 0.5 * layer_height_maximum);
+
     config.factors = {
         {PaneCalibrationFactor::NozzleTemperature, tool == PaneCalibrationTool::ClearFilament, 260., 275., 4},
-        {PaneCalibrationFactor::PrintSpeed,        tool == PaneCalibrationTool::ClearFilament, 25., 50., 4},
-        {PaneCalibrationFactor::FlowRatio,         tool == PaneCalibrationTool::ClearFilament, 0.96, 1.08, 4},
-        {PaneCalibrationFactor::LayerHeight,       tool == PaneCalibrationTool::ClearFilament, 0.1, 0.4, 4},
-        {PaneCalibrationFactor::MaxFanSpeed,       false, 0., 60., 4},
-        {PaneCalibrationFactor::WallFanSpeed,      false, 20., 80., 4},
-        {PaneCalibrationFactor::IroningFanSpeed,   false, 0., 60., 4},
+        {PaneCalibrationFactor::PrintSpeed, tool == PaneCalibrationTool::ClearFilament, 25., 50., 4},
+        {PaneCalibrationFactor::FlowRatio, tool == PaneCalibrationTool::ClearFilament, 0.96, 1.08, 4},
+        {PaneCalibrationFactor::LayerHeight, tool == PaneCalibrationTool::ClearFilament, layer_height_minimum, layer_height_maximum, 4},
+        {PaneCalibrationFactor::MaxFanSpeed, false, 0., 60., 4},
+        {PaneCalibrationFactor::WallFanSpeed, false, 20., 80., 4},
+        {PaneCalibrationFactor::IroningFanSpeed, false, 0., 60., 4},
         {PaneCalibrationFactor::AuxiliaryFanSpeed, false, 0., 80., 4},
-        {PaneCalibrationFactor::IroningType,       tool == PaneCalibrationTool::Ironing, 0., 3., 4},
-        {PaneCalibrationFactor::IroningFlow,       tool == PaneCalibrationTool::Ironing, 5., 20., 4},
-        {PaneCalibrationFactor::IroningAngle,      false, 0., 3., 4},
-        {PaneCalibrationFactor::LineWidth,         false, 0.4, 0.6, 4},
-        {PaneCalibrationFactor::IroningSpeed,      tool == PaneCalibrationTool::Ironing, 10., 30., 4},
-        {PaneCalibrationFactor::IroningSpacing,    tool == PaneCalibrationTool::Ironing, 0.05, 0.2, 4},
+        {PaneCalibrationFactor::IroningType, tool == PaneCalibrationTool::Ironing, 0., 3., 4},
+        {PaneCalibrationFactor::IroningFlow, tool == PaneCalibrationTool::Ironing, 5., 20., 4},
+        {PaneCalibrationFactor::IroningAngle, false, 0., 3., 4},
+        {PaneCalibrationFactor::LineWidth, false, 0.4, 0.6, 4},
+        {PaneCalibrationFactor::IroningSpeed, tool == PaneCalibrationTool::Ironing, 10., 30., 4},
+        {PaneCalibrationFactor::IroningSpacing, tool == PaneCalibrationTool::Ironing, 0.05, 0.2, 4},
     };
     return config;
+}
+
+void validate_pane_calibration_machine_limits(const PaneCalibrationConfig& config, double nozzle_diameter)
+{
+    if (!std::isfinite(nozzle_diameter) || nozzle_diameter <= 0.)
+        throw std::invalid_argument(L("The active pane extruder does not define a usable nozzle diameter"));
+
+    for (const PaneCalibrationFactorSetting& factor : config.factors) {
+        if (!factor.enabled)
+            continue;
+        if (factor.factor == PaneCalibrationFactor::LayerHeight &&
+            (factor.minimum <= 0. || factor.maximum > nozzle_diameter || factor.maximum > config.pane_height))
+            throw std::invalid_argument(
+                L("Layer-height levels must be positive and no greater than the selected pane extruder's nozzle diameter or pane height"));
+        if (factor.factor == PaneCalibrationFactor::LineWidth &&
+            (factor.minimum < 0.25 * nozzle_diameter || factor.maximum > 2.5 * nozzle_diameter))
+            throw std::invalid_argument(
+                L("Line-width levels must be between 25% and 250% of the selected pane extruder's nozzle diameter"));
+    }
+}
+
+PaneCalibrationLabelSchedule pane_calibration_label_schedule(const ModelObject& object, const Transform3d& object_transform)
+{
+    double   body_top       = -std::numeric_limits<double>::infinity();
+    double   label_start    = std::numeric_limits<double>::infinity();
+    unsigned label_extruder = unsigned(-1);
+    bool     has_body       = false;
+    bool     has_label      = false;
+
+    for (const ModelVolume* volume : object.volumes) {
+        if (!volume->is_model_part())
+            continue;
+        const ConfigOptionBool* label_option        = volume->config.get().option<ConfigOptionBool>("pane_calibration_label");
+        const bool              is_label            = label_option != nullptr && label_option->value;
+        const BoundingBoxf3     bounds              = volume->mesh().transformed_bounding_box(object_transform * volume->get_matrix());
+        const int               configured_extruder = volume->extruder_id();
+        const unsigned          extruder            = configured_extruder > 0 ? unsigned(configured_extruder - 1) : 0;
+        if (is_label) {
+            if (label_extruder == unsigned(-1))
+                label_extruder = extruder;
+            else if (label_extruder != extruder)
+                return {PaneCalibrationLabelScheduleStatus::MultipleLabelExtruders, 0., 0};
+            label_start = std::min(label_start, bounds.min.z());
+            has_label   = true;
+        } else {
+            body_top = std::max(body_top, bounds.max.z());
+            has_body = true;
+        }
+    }
+    if (!has_body || !has_label)
+        return {};
+
+    bool body_uses_other_extruder = false;
+    for (const ModelVolume* volume : object.volumes) {
+        const ConfigOptionBool* label_option = volume->config.get().option<ConfigOptionBool>("pane_calibration_label");
+        if (!volume->is_model_part() || (label_option != nullptr && label_option->value))
+            continue;
+        const int configured_extruder = volume->extruder_id();
+        if ((configured_extruder > 0 ? unsigned(configured_extruder - 1) : 0) != label_extruder) {
+            body_uses_other_extruder = true;
+            break;
+        }
+    }
+    if (!body_uses_other_extruder)
+        return {};
+    if (label_start + EPSILON < body_top)
+        return {PaneCalibrationLabelScheduleStatus::GeometryOverlap, label_start, label_extruder};
+    return {PaneCalibrationLabelScheduleStatus::Ready, label_start, label_extruder};
 }
 
 TriangleMesh make_pane_calibration_body(const PaneCalibrationConfig &config, double first_layer_height)
