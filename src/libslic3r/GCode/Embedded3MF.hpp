@@ -24,7 +24,8 @@ struct ExtractResult {
 };
 
 // Appends a versioned, comment-only Base64 trailer containing project_path to
-// gcode_path. On failure, gcode_path is restored to its original size.
+// gcode_path, followed by a copy of its comment-only footer for metadata readers.
+// Rejects an existing payload. On failure, gcode_path is restored to its original size.
 bool append(const std::string &gcode_path, const std::string &project_path, std::string &error);
 
 // Extracts the first embedded project in gcode_path to output_path. Corrupt

@@ -19,7 +19,7 @@ The project snapshot is created when export or upload is scheduled. Failure to c
 rather than silently producing a G-code without the requested project.
 
 Post-processing scripts and optional G-code line numbering run before the payload is appended. This prevents those transformations from
-invalidating the embedded data.
+invalidating the embedded data. A second embedded payload is rejected rather than producing a file that cannot be recovered.
 
 ## On-disk format
 
@@ -38,6 +38,8 @@ comment. The `SLIC3R` namespace allows the format to be shared by Slic3r-derived
 
 The encoded bytes are the complete 3MF ZIP produced by Snapmaker Orca's normal project exporter. Because a 3MF is already compressed, no
 additional compression is applied. A newline is inserted before the begin marker if the G-code does not already end with one.
+The original trailing comment/blank footer is repeated after the end marker so hosts that scan only the end of the file still see
+print-time, filament, and configuration metadata. No executable line is repeated.
 
 Readers validate all of the following:
 
@@ -73,7 +75,13 @@ normal error; the original G-code is not modified.
 - The original printable G-code portion is unchanged.
 - Writers emit the `SLIC3R_EMBEDDED_3MF_*` namespace. Readers also accept the legacy `SNAPMAKER_ORCA_EMBEDDED_3MF_*` namespace emitted by
   early builds of this feature.
-- Other slicers and firmware are not expected to understand the trailer, but can ignore it as comments.
+- The slicer's motion-based time estimate and emitted progress commands are unchanged. Regression tests compare parsed moves and
+  estimated time before and after embedding.
+- Other slicers and firmware are not expected to understand the trailer, but can ignore it as comments. This is not a guarantee for
+  every printer: upload/file-size limits, firmware-specific validators, and comment processing speed still apply. Firmware or hosts
+  that estimate progress/time from bytes read can report misleading progress while consuming the larger file. The slicer cannot
+  correct such firmware estimates merely by preserving time metadata. Test an exported file on the target printer before relying
+  on embedding for routine printing.
 - Enabling the preference intentionally increases file and upload sizes by roughly the Base64 expansion of the 3MF and includes editable
   geometry, settings, presets, and other project content normally saved in the selected 3MF scope.
 - The checksum detects accidental corruption; it is not a signature and does not establish trust. Embedded projects receive the same
@@ -82,6 +90,6 @@ normal error; the original G-code is not modified.
 ## Tests
 
 Unit tests cover canonical marker output, legacy marker compatibility, round trips, files lacking a final newline, absent and empty payloads,
-malformed/truncated Base64, size mismatches, checksum mismatches, unsupported versions, duplicate markers, and multi-chunk payloads.
+malformed/truncated Base64, size mismatches, checksum mismatches, unsupported versions, duplicate markers, repeated-embedding rejection, retained EOF metadata, unchanged parsed moves/estimated time, and multi-chunk payloads.
 Integration-facing code keeps project serialization separate from the format codec so the codec tests remain deterministic and do not
 require the GUI.
