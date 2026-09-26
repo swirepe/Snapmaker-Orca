@@ -8,6 +8,8 @@
 
 namespace Slic3r {
 
+inline constexpr const char REGION_FAN_SPEED_MARKER[] = ";_REGION_FAN_SPEED:";
+
 class GCode;
 class Layer;
 struct PerExtruderAdjustments;
@@ -57,6 +59,9 @@ private:
     unsigned int                m_current_extruder;
     //BBS: current fan speed
     int                         m_current_fan_speed;
+    // Region overrides are emitted as internal markers and resolved here so
+    // layer-time and role-based fan changes cannot silently replace them.
+    int                         m_region_fan_speed;
 };
 
 }

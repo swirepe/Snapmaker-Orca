@@ -19062,7 +19062,7 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     try {
         plan = build_pane_calibration_plan(config);
     } catch (const std::exception &error) {
-        MessageDialog(this, from_u8(error.what()), _L("Invalid calibration"), wxICON_WARNING | wxOK).ShowModal();
+        MessageDialog(this, _(error.what()), _L("Invalid calibration"), wxICON_WARNING | wxOK).ShowModal();
         return;
     }
 
@@ -19084,21 +19084,11 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     }
 
     const double nozzle = nozzles->values[size_t(config.pane_extruder - 1)];
-    for (const PaneCalibrationFactorSetting &factor : config.factors) {
-        if (!factor.enabled)
-            continue;
-        if (factor.factor == PaneCalibrationFactor::LayerHeight &&
-            (factor.minimum <= 0. || factor.maximum > nozzle || factor.maximum > config.pane_height)) {
-            MessageDialog(this, _L("Layer-height levels must be positive and no greater than the active nozzle diameter or pane height."),
-                          project_name, wxICON_WARNING | wxOK).ShowModal();
-            return;
-        }
-        if (factor.factor == PaneCalibrationFactor::LineWidth &&
-            (factor.minimum < 0.25 * nozzle || factor.maximum > 2.5 * nozzle)) {
-            MessageDialog(this, _L("Line-width levels must be between 25% and 250% of the active nozzle diameter."), project_name,
-                          wxICON_WARNING | wxOK).ShowModal();
-            return;
-        }
+    try {
+        validate_pane_calibration_machine_limits(config, nozzle);
+    } catch (const std::exception& error) {
+        MessageDialog(this, _(error.what()), project_name, wxICON_WARNING | wxOK).ShowModal();
+        return;
     }
 
     const double first_layer_height = std::max(0.01, full_config.opt_float("initial_layer_print_height"));
@@ -19110,7 +19100,7 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
     try {
         (void) make_pane_calibration_body(config, first_layer_height);
     } catch (const std::exception &error) {
-        MessageDialog(this, from_u8(error.what()), project_name, wxICON_WARNING | wxOK).ShowModal();
+        MessageDialog(this, _(error.what()), project_name, wxICON_WARNING | wxOK).ShowModal();
         return;
     }
 
@@ -19356,6 +19346,7 @@ void Plater::calib_panes(const PaneCalibrationConfig &config)
                 label->name = "Calibration label";
                 label->set_offset(Vec3d(0., 0., config.pane_height));
                 label->config.set_key_value("extruder", new ConfigOptionInt(config.label_extruder));
+                label->config.set_key_value("pane_calibration_label", new ConfigOptionBool(true));
                 label->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
                 if (config.pane_extruder == config.label_extruder)
                     apply_row(label->config, plan.rows[row_index], true);

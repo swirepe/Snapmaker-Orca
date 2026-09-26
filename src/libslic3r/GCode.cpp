@@ -16,6 +16,7 @@
 #include "GCode/WipeTower2.hpp"
 #include "ShortestPath.hpp"
 #include "MixedFilament.hpp"
+#include "PaneCalibration.hpp"
 #include "Print.hpp"
 #include "Utils.hpp"
 #include "ClipperUtils.hpp"
@@ -35,6 +36,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <string_view>
 
@@ -2935,11 +2937,29 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
 
         // Do all objects for each layer.
         if (print.config().print_sequence == PrintSequence::ByObject && !has_wipe_tower) {
-            const bool two_phase_pane_labels =
-                (print.calib_mode() == CalibMode::Calib_Clear_Filament || print.calib_mode() == CalibMode::Calib_Ironing) &&
-                print.calib_params().pane_config.labels &&
-                print.calib_params().pane_config.pane_extruder != print.calib_params().pane_config.label_extruder;
-            const double pane_body_height = print.calib_params().pane_config.pane_height;
+            // The calibration mode is deliberately not consulted here: it is
+            // transient UI state and is cleared when a 3MF is reopened.  The
+            // generated label volume carries a persistent marker instead, and
+            // the split height is reconstructed from the current geometry so
+            // moving/scaling the calibration object remains safe.
+            struct PaneLabelPhase
+            {
+                double   start_z;
+                unsigned first_extruder;
+            };
+            std::unordered_map<const PrintObject*, PaneLabelPhase> pane_label_phases;
+            for (const PrintObject* object : print.objects()) {
+                const PaneCalibrationLabelSchedule schedule = pane_calibration_label_schedule(*object->model_object(),
+                                                                                              object->trafo_centered());
+                if (schedule.status == PaneCalibrationLabelScheduleStatus::MultipleLabelExtruders)
+                    throw SlicingError(_(L("Calibration labels within one pane object must use the same extruder.")));
+                if (schedule.status == PaneCalibrationLabelScheduleStatus::GeometryOverlap)
+                    throw SlicingError(_(L("Calibration labels overlap pane geometry and cannot be scheduled safely. Move the labels above "
+                                           "the panes or regenerate the calibration.")));
+                if (schedule.status == PaneCalibrationLabelScheduleStatus::Ready)
+                    pane_label_phases.emplace(object, PaneLabelPhase{schedule.label_start_z, schedule.label_extruder});
+            }
+            const bool         two_phase_pane_labels = !pane_label_phases.empty();
             size_t             finished_objects = 0;
             const PrintObject* prev_object      = (*print_object_instance_sequential_active)->print_object;
             for (; print_object_instance_sequential_active != print_object_instances_ordering.end();
@@ -2998,10 +3018,12 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
                 // Generate G-code, run the filters (vase mode, cooling buffer), run the G-code analyser
                 // and export G-code into file.
                 std::vector<LayerToPrint> object_layers = collect_layers_to_print(object);
-                if (two_phase_pane_labels)
+                if (const auto pane_phase = pane_label_phases.find(&object); pane_phase != pane_label_phases.end())
                     object_layers.erase(std::remove_if(object_layers.begin(), object_layers.end(),
-                        [pane_body_height](const LayerToPrint &layer) { return layer.print_z() > pane_body_height + EPSILON; }),
-                        object_layers.end());
+                                                       [label_start = pane_phase->second.start_z](const LayerToPrint& layer) {
+                                                           return layer.print_z() > label_start + EPSILON;
+                                                       }),
+                                        object_layers.end());
                 this->process_layers(print, tool_ordering, std::move(object_layers),
                                      *print_object_instance_sequential_active - object.instances().data(), file, prime_extruder);
                 // BBS: close powerlost recovery
@@ -3021,9 +3043,25 @@ void GCode::_do_export(Print& print, GCodeOutputStream& file, ThumbnailsGenerato
             if (two_phase_pane_labels) {
                 auto label_layers = collect_layers_to_print(print);
                 label_layers.erase(std::remove_if(label_layers.begin(), label_layers.end(),
-                    [pane_body_height](const auto &layer) { return layer.first <= pane_body_height + EPSILON; }), label_layers.end());
+                                                  [&pane_label_phases](auto& layer) {
+                                                      auto& object_layers = layer.second;
+                                                      object_layers.erase(std::remove_if(object_layers.begin(), object_layers.end(),
+                                                                                         [&pane_label_phases](
+                                                                                             const LayerToPrint& object_layer) {
+                                                                                             const auto pane_phase = pane_label_phases.find(
+                                                                                                 object_layer.object());
+                                                                                             return pane_phase == pane_label_phases.end() ||
+                                                                                                    object_layer.print_z() <=
+                                                                                                        pane_phase->second.start_z +
+                                                                                                            EPSILON;
+                                                                                         }),
+                                                                          object_layers.end());
+                                                      return object_layers.empty();
+                                                  }),
+                                   label_layers.end());
                 if (!label_layers.empty()) {
-                    const unsigned label_extruder = unsigned(print.calib_params().pane_config.label_extruder - 1);
+                    const PrintObject* first_label_object = label_layers.front().second.front().object();
+                    const unsigned     label_extruder     = pane_label_phases.at(first_label_object).first_extruder;
                     file.write(this->set_extruder(label_extruder, label_layers.front().first, true));
                     this->set_origin(0., 0.);
                     m_cooling_buffer->reset(this->writer().get_position());
@@ -5139,8 +5177,14 @@ LayerResult GCode::process_layer(const Print& print,
                 // In single extruder multi material mode, set the temperature for the current extruder only.
                 continue;
             int temperature = get_value_at(print.config(), print.config().nozzle_temperature, ConfigFlowDomain::Filament, extruder.id());
-            if (temperature > 0 && temperature != get_value_at(print.config(), print.config().nozzle_temperature_initial_layer, ConfigFlowDomain::Filament, extruder.id()))
+            if (temperature > 0 && temperature != get_value_at(print.config(), print.config().nozzle_temperature_initial_layer, ConfigFlowDomain::Filament, extruder.id())) {
                 gcode += m_writer.set_temperature(temperature, false, extruder.id());
+                // The second-layer transition changes the physical target behind
+                // the regional cache. Force the first extrusion in an overridden
+                // region to assert its target again.
+                if (int(extruder.id()) == m_last_region_temperature_extruder)
+                    m_last_region_temperature = -1;
+            }
         }
 
         // BBS: bed temperature accommodates the highest-temperature filament of the print
@@ -7771,10 +7815,13 @@ std::string GCode::set_region_process_overrides(ExtrusionRole role)
         effective_fan_speed = m_config.ironing_fan_speed_override.value;
 
     if (effective_fan_speed != m_last_region_fan_speed) {
-        if (effective_fan_speed >= 0)
-            gcode += m_writer.set_fan(unsigned(effective_fan_speed));
+        if (effective_fan_speed >= 0) {
+            gcode += REGION_FAN_SPEED_MARKER;
+            gcode += std::to_string(effective_fan_speed);
+            gcode += '\n';
+        }
         else if (m_last_region_fan_speed >= 0)
-            gcode += ";_FORCE_RESUME_FAN_SPEED\n";
+            gcode += std::string(REGION_FAN_SPEED_MARKER) + "-1\n";
         m_last_region_fan_speed = effective_fan_speed;
     }
 

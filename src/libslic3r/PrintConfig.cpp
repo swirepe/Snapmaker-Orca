@@ -3924,6 +3924,14 @@ void PrintConfigDef::init_fff_params()
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionInt(-1));
 
+    // Internal, persistent marker used to reconstruct the transparent/ironing
+    // pane label phase after a project has been saved and reopened.  This is a
+    // model-volume property, not a user-facing process setting.
+    def       = this->add("pane_calibration_label", coBool);
+    def->mode = comDevelop;
+    def->cli  = ConfigOptionDef::nocli;
+    def->set_default_value(new ConfigOptionBool(false));
+
     def = this->add("layer_change_gcode", coString);
     def->label = L("Layer change G-code");
     def->tooltip = L("This G-code is inserted at every layer change after the Z lift.");

@@ -2119,7 +2119,18 @@ ModelVolumeType type_from_string(const std::string &s)
             "thermal_pattern_internal_policy",
             "thermal_pattern_speed_assist",
             "thermal_pattern_speed_max_factor",
-            "thermal_pattern_speed_min"
+            "thermal_pattern_speed_min",
+            "outer_wall_speed",
+            "inner_wall_speed",
+            "internal_solid_infill_speed",
+            "top_surface_speed",
+            "print_flow_ratio",
+            "layer_height",
+            "outer_wall_line_width",
+            "inner_wall_line_width",
+            "internal_solid_infill_line_width",
+            "top_surface_line_width",
+            "pane_calibration_label"
         };
 
         auto itor = std::find(valid_keys.begin(), valid_keys.end(), key);

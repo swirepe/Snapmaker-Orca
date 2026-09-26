@@ -200,6 +200,22 @@ TEST_CASE("Thermal surface patterning uses the regional nozzle temperature as it
     REQUIRE(gcode.find("target=235C") != std::string::npos);
 }
 
+TEST_CASE("Regional nozzle override is reasserted after the second-layer temperature transition",
+          "[PrintGCode][regional_settings]")
+{
+    DynamicPrintConfig config = default_print_config();
+    config.set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts {220});
+    config.set_key_value("nozzle_temperature", new ConfigOptionInts {210});
+    config.set_key_value("nozzle_temperature_override", new ConfigOptionInt(275));
+    config.set_key_value("machine_start_gcode", new ConfigOptionString {});
+
+    const std::string gcode = Slic3r::Test::slice({make_cube(10., 10., 0.6)}, config);
+    const size_t      base_transition = gcode.find("M104 S210");
+
+    REQUIRE(base_transition != std::string::npos);
+    CHECK(gcode.find("M104 S275", base_transition) != std::string::npos);
+}
+
 SCENARIO( "PrintGCode basic functionality", "[PrintGCode]") {
     GIVEN("A default configuration and a print test object") {
         WHEN("the output is executed with no support material") {
