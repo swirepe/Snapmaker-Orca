@@ -117,8 +117,9 @@ eligible.
 ### Small painted regions and thermal lag
 
 Nozzle temperature cannot change instantaneously. The slicer uses the same
-first-order heating/cooling model as the script and displays predicted achieved
-temperature in its generated metadata/preview.
+first-order heating/cooling model as the script and records predicted achieved
+temperature in its generated `THERMAL_PATTERN` metadata. Temperature preview
+shows the commanded nozzle target, not a measured or predicted achieved temperature.
 
 Short wall fragments do not create independent random samples: they inherit the
 object's current vertical band. If an outer-wall span cannot approach its target,
@@ -128,8 +129,8 @@ are merged into deterministic time/line-bounded groups rather than slowed line
 by line.
 
 The thermal transition may physically bleed beyond a painted boundary. The
-preview represents the predicted temperature rather than implying an impossible
-hard color boundary.
+preview color boundary marks a target change; it does not imply an instantaneous
+physical temperature change.
 
 ### G-code and preview
 
@@ -208,3 +209,18 @@ alter unrelated filament presets.
     bounds, and both native and project-3MF paint serialization. Slicer-level
     regression checks cover protected roles, multi-tool state, and painted
     segmentation.
+
+## Diagnosing a single preview temperature
+
+Select the Temperature color scheme after re-slicing. Patterning requires both
+the active filament's enable switch and an enabled process/object application
+mode; Painted surfaces also requires painted eligible facets. A zero increment,
+a ceiling at the normal target, or level zero over a short model can legitimately
+produce one target. The first layer and protected roles intentionally stay at
+the normal target. Check exported `THERMAL_PATTERN` comments and heater commands
+to distinguish unchanged targets from a preview issue.
+
+The preview parser handles addressed M104/M109 commands independently per heater
+and RepRapFirmware G10 S/P temperature commands without treating them as
+retractions. Single-extruder multi-material output omits the virtual filament
+number from heater commands, as normal slicer temperature output does.

@@ -7642,8 +7642,7 @@ std::string GCode::thermal_pattern_before_path(const ExtrusionPath &path, double
     std::string gcode = std::move(inactive_tool_restore);
     const bool target_changed = state.target != static_cast<int>(desired);
     if (target_changed) {
-        gcode += GCodeWriter::set_temperature(desired, m_writer.get_gcode_flavor(), false,
-                                               static_cast<int>(tool), "THERMAL_PATTERN target");
+        gcode += m_writer.set_temperature(desired, false, static_cast<int>(tool), "THERMAL_PATTERN target");
         state.target = static_cast<int>(desired);
     }
 
@@ -7690,14 +7689,19 @@ std::string GCode::thermal_pattern_restore_tool(size_t tool, const char *reason)
     ThermalToolState &state = m_thermal_pattern_tool_states[tool];
     if (!state.initialized)
         return {};
+    // Virtual filaments share one heater. Never restore an inactive filament's
+    // baseline onto the physical nozzle currently printing another filament.
+    if (m_config.single_extruder_multi_material &&
+        (m_writer.extruder() == nullptr || m_writer.extruder()->id() != tool))
+        return {};
     const int base = static_cast<int>(std::lround(get_value_at(
         m_config, m_config.nozzle_temperature, ConfigFlowDomain::Filament, static_cast<unsigned int>(tool))));
     if (state.target == base)
         return {};
     state.target = base;
     state.non_surface_seconds = 0.0;
-    return GCodeWriter::set_temperature(static_cast<unsigned int>(base), m_writer.get_gcode_flavor(), false,
-                                        static_cast<int>(tool), std::string("THERMAL_PATTERN restore ") + reason);
+    return m_writer.set_temperature(static_cast<unsigned int>(base), false, static_cast<int>(tool),
+                                    std::string("THERMAL_PATTERN restore ") + reason);
 }
 
 std::string GCode::thermal_pattern_restore_all()

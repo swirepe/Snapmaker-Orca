@@ -7,6 +7,14 @@
 #include <vector>
 
 #include "libslic3r/PrintConfig.hpp"
+#include "libslic3r/GCode/GCodeProcessor.hpp"
+#include "libslic3r/GCodeWriter.hpp"
+#include "libslic3r/Model.hpp"
+#include "libslic3r/Print.hpp"
+#include <boost/filesystem.hpp>
+#include <boost/scope_exit.hpp>
+#include <fstream>
+#include <set>
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/ThermalSurfacePatterning.hpp"
 
@@ -179,4 +187,106 @@ TEST_CASE("Thermal response and speed assistance are bounded", "[thermal_pattern
     REQUIRE(ThermalPatternGenerator::assisted_speed(100., 1., 200., 250., settings) >= 30.);
     REQUIRE(ThermalPatternGenerator::assisted_speed(100., 1., 248., 250., settings) == 100.);
     REQUIRE(ThermalPatternGenerator::assisted_speed(100., 30., 200., 250., settings) == 100.);
+}
+
+TEST_CASE("Thermal preview tracks the addressed heater", "[thermal_pattern][gcode_processor]")
+{
+    PrintConfig config;
+    config.nozzle_diameter.values = {0.4, 0.4};
+    config.filament_diameter.values = {1.75, 1.75};
+    config.single_extruder_multi_material.value = false;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.initialize("thermal-preview.gcode");
+    processor.process_buffer("G90\nM83\nT0\nM104 S210 T0\nM104 S240 T1\nG1 X10 E1 F600\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 210.0f);
+    processor.process_buffer("T1\nG1 X20 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 240.0f);
+    processor.process_buffer("M109 S220 T0\nG1 X30 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 240.0f);
+    processor.process_buffer("M104 S250 T1\nG1 X40 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 250.0f);
+    processor.process_buffer("M104 S999 T-1\nM109 R999 T999\nG1 X50 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 250.0f);
+    processor.process_buffer("T0\nG1 X60 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 220.0f);
+}
+
+TEST_CASE("RepRapFirmware thermal commands change preview temperature without retracting", "[thermal_pattern][gcode_processor]")
+{
+    PrintConfig config;
+    config.gcode_flavor.value = gcfRepRapFirmware;
+    GCodeProcessor processor;
+    processor.apply_config(config);
+    processor.initialize("thermal-preview.gcode");
+    processor.process_buffer("G90\nM83\nG1 X10 E1 F600\n");
+    const size_t moves = processor.get_result().moves.size();
+    processor.process_buffer("G10 S240 P0\n");
+    REQUIRE(processor.get_result().moves.size() == moves);
+    processor.process_buffer("G1 X20 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 240.0f);
+    processor.process_buffer("G10 S260 P0\nG1 X30 E1\n");
+    REQUIRE(processor.get_result().moves.back().temperature == 260.0f);
+}
+
+TEST_CASE("Thermal temperature annotations preserve physical heater addressing", "[thermal_pattern][gcode_writer]")
+{
+    PrintConfig config;
+    config.gcode_flavor.value = gcfMarlinFirmware;
+    config.single_extruder_multi_material.value = true;
+    GCodeWriter writer;
+    writer.apply_print_config(config);
+    writer.set_extruders({0, 1});
+    REQUIRE(writer.set_temperature(240, false, 1, "THERMAL_PATTERN target") == "M104 S240 ; THERMAL_PATTERN target\n");
+
+    config.single_extruder_multi_material.value = false;
+    writer.apply_print_config(config);
+    writer.set_extruders({0, 1});
+    REQUIRE(writer.set_temperature(240, false, 1, "THERMAL_PATTERN target") == "M104 S240 T1 ; THERMAL_PATTERN target\n");
+}
+
+TEST_CASE("Native thermal patterning produces varied targets in exported preview", "[thermal_pattern][integration]")
+{
+    DynamicPrintConfig config;
+    const FullPrintConfig& defaults = FullPrintConfig::defaults();
+    config.apply(static_cast<const PrintObjectConfig&>(defaults), true);
+    config.apply(static_cast<const PrintRegionConfig&>(defaults), true);
+    config.apply(static_cast<const PrintConfig&>(defaults), true);
+    config.set_key_value("thermal_pattern_enabled", new ConfigOptionBools{true});
+    config.set_key_value("thermal_pattern_mode", new ConfigOptionEnum<ThermalPatternMode>(ThermalPatternMode::AllSurfaces));
+    config.set_key_value("thermal_pattern_temperature_step", new ConfigOptionFloats{10.0});
+    config.set_key_value("thermal_pattern_max_temperature", new ConfigOptionInts{270});
+    config.set_key_value("nozzle_temperature", new ConfigOptionInts{210});
+    config.set_key_value("nozzle_temperature_initial_layer", new ConfigOptionInts{210});
+    config.set_key_value("machine_max_nozzle_temperature", new ConfigOptionInts{300});
+    config.set_key_value("gcode_flavor", new ConfigOptionEnum<GCodeFlavor>(gcfMarlinFirmware));
+    config.set_key_value("enable_arc_fitting", new ConfigOptionBool(false));
+
+    Model model;
+    ModelObject* object = model.add_object();
+    object->name = "thermal-cube.stl";
+    object->add_volume(make_cube(10, 10, 10));
+    object->add_instance();
+    object->ensure_on_bed();
+    Print print;
+    print.set_status_silent();
+    print.auto_assign_extruders(object);
+    print.apply(model, config);
+    print.process();
+
+    const auto output = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path("thermal-%%%%-%%%%.gcode");
+    BOOST_SCOPE_EXIT(&output) { boost::system::error_code ec; boost::filesystem::remove(output, ec); } BOOST_SCOPE_EXIT_END
+    GCodeProcessorResult result;
+    print.export_gcode(output.string(), &result, nullptr);
+    std::set<float> targets;
+    for (const auto& move : result.moves)
+        if (move.type == EMoveType::Extrude)
+            targets.insert(move.temperature);
+    REQUIRE(targets.size() > 1);
+    REQUIRE(*targets.begin() == 210.0f);
+    REQUIRE(*targets.rbegin() <= 270.0f);
+    std::ifstream stream(output.string());
+    const std::string gcode{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    REQUIRE(gcode.find("; THERMAL_PATTERN tool=T0") != std::string::npos);
 }

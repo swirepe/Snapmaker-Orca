@@ -111,6 +111,83 @@ TEST_CASE("Thermal surface paint survives a 3MF round trip", "[3mf][thermal_patt
     REQUIRE(loaded_paint.get_triangle_as_string(0) == "1");
 }
 
+TEST_CASE("Thermal object settings survive a standard 3MF round trip", "[3mf][thermal_pattern]")
+{
+    const std::vector<std::string> keys {"thermal_pattern_mode",
+                                         "thermal_pattern_preset",
+                                         "thermal_pattern_seed",
+                                         "thermal_pattern_outer_walls",
+                                         "thermal_pattern_top_surfaces",
+                                         "thermal_pattern_max_level",
+                                         "thermal_pattern_top_max_level",
+                                         "thermal_pattern_band_median",
+                                         "thermal_pattern_band_sigma",
+                                         "thermal_pattern_band_min",
+                                         "thermal_pattern_band_max",
+                                         "thermal_pattern_dark_band_narrowing",
+                                         "thermal_pattern_stay_weight",
+                                         "thermal_pattern_adjacent_weight",
+                                         "thermal_pattern_two_away_weight",
+                                         "thermal_pattern_far_weight",
+                                         "thermal_pattern_darkness_bias",
+                                         "thermal_pattern_trend_persistence",
+                                         "thermal_pattern_trend_strength",
+                                         "thermal_pattern_accent_chance",
+                                         "thermal_pattern_accent_boost",
+                                         "thermal_pattern_accent_min",
+                                         "thermal_pattern_accent_max",
+                                         "thermal_pattern_top_group_min_time",
+                                         "thermal_pattern_top_group_max_lines",
+                                         "thermal_pattern_heat_tau",
+                                         "thermal_pattern_cool_tau",
+                                         "thermal_pattern_tolerance",
+                                         "thermal_pattern_surface_heat_credit",
+                                         "thermal_pattern_min_base_dwell",
+                                         "thermal_pattern_max_preheat",
+                                         "thermal_pattern_protect_risky_features",
+                                         "thermal_pattern_internal_policy",
+                                         "thermal_pattern_speed_assist",
+                                         "thermal_pattern_speed_max_factor",
+                                         "thermal_pattern_speed_min"};
+
+    Model source;
+    const std::string source_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
+    load_stl(source_file.c_str(), &source);
+    source.add_default_instances();
+    DynamicPrintConfig defaults = DynamicPrintConfig::full_print_config();
+    ModelConfig& object_config = source.objects.front()->config;
+    ModelConfig& volume_config = source.objects.front()->volumes.front()->config;
+    for (const std::string& key : keys) {
+        CAPTURE(key);
+        const ConfigOption* option = defaults.option(key);
+        REQUIRE(option != nullptr);
+        object_config.set_key_value(key, option->clone());
+        volume_config.set_key_value(key, option->clone());
+    }
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("thermal-settings-%%%%-%%%%.3mf");
+    REQUIRE(store_3mf(output.string().c_str(), &source, nullptr, false));
+
+    Model loaded;
+    DynamicPrintConfig loaded_config;
+    ConfigSubstitutionContext context {ForwardCompatibilitySubstitutionRule::Disable};
+    REQUIRE(load_3mf(output.string().c_str(), loaded_config, context, &loaded, false));
+    boost::filesystem::remove(output);
+
+    REQUIRE(loaded.objects.size() == 1);
+    REQUIRE(loaded.objects.front()->volumes.size() == 1);
+    const ModelConfig& loaded_object_config = loaded.objects.front()->config;
+    const ModelConfig& loaded_volume_config = loaded.objects.front()->volumes.front()->config;
+    for (const std::string& key : keys) {
+        INFO(key);
+        REQUIRE(loaded_object_config.has(key));
+        REQUIRE(loaded_object_config.opt_serialize(key) == object_config.opt_serialize(key));
+        REQUIRE(loaded_volume_config.has(key));
+        REQUIRE(loaded_volume_config.opt_serialize(key) == volume_config.opt_serialize(key));
+    }
+}
+
 TEST_CASE("Thermal surface paint survives a project 3MF round trip", "[3mf][thermal_pattern][bbs_3mf]")
 {
     Model source;
