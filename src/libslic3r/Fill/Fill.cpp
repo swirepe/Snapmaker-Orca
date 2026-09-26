@@ -1588,9 +1588,14 @@ void Layer::make_ironing()
 		}
 
 		size_t j = i;
-		for (++ j; j < by_extruder.size() && ironing_params == by_extruder[j]; ++ j) ;
+        // Preserve regional process settings, including fuzzy height fields, in the
+        // region that owns the generated ironing paths.
+        for (++j; j < by_extruder.size() && ironing_params == by_extruder[j] &&
+                  ironing_params.layerm->region().config() == by_extruder[j].layerm->region().config();
+             ++j)
+            ;
 
-		// Create the ironing extrusions for regions <i, j)
+        // Create the ironing extrusions for regions <i, j)
 		ExPolygons ironing_areas;
 		double nozzle_dmr = this->object()->print()->config().nozzle_diameter.get_at(ironing_params.extruder - 1);
 		if (ironing_params.just_infill) {
@@ -1661,9 +1666,28 @@ void Layer::make_ironing()
 		double  extrusion_height = ironing_params.height * f->spacing / nozzle_dmr;
 		float  extrusion_width  = Flow::rounded_rectangle_extrusion_width_from_spacing(float(nozzle_dmr), float(extrusion_height));
 		double flow_mm3_per_mm = nozzle_dmr * extrusion_height;
+        // Keep exposed top ironing separate from buried AllSolid/EveryOtherLayer
+        // passes so only the former follows the fuzzy top height field.
+        ExPolygons               top_ironing;
+        size_t                   top_area_count = 0;
+        const PrintRegionConfig& process_config = ironing_params.layerm->region().config();
+        if (process_config.fuzzy_skin != FuzzySkinType::None && process_config.fuzzy_skin_top_surface.value) {
+            Polygons exposed_tops;
+            for (size_t k = i; k < j; ++k)
+                for (const Surface& surface : by_extruder[k].layerm->slices.surfaces)
+                    if (surface.surface_type == stTop)
+                        polygons_append(exposed_tops, surface.expolygon);
+            top_ironing               = intersection_ex(ironing_areas, exposed_tops);
+            ExPolygons buried_ironing = diff_ex(ironing_areas, exposed_tops);
+            top_area_count            = top_ironing.size();
+            append(top_ironing, std::move(buried_ironing));
+        } else {
+            top_ironing = std::move(ironing_areas);
+        }
         Surface surface_fill(stTop, ExPolygon());
-        for (ExPolygon &expoly : ironing_areas) {
-			surface_fill.expolygon = std::move(expoly);
+        for (size_t area_index = 0; area_index < top_ironing.size(); ++area_index) {
+            ExPolygon& expoly      = top_ironing[area_index];
+            surface_fill.expolygon = std::move(expoly);
 			Polylines polylines;
 			try {
 				polylines = f->fill_surface(&surface_fill, fill_params);
@@ -1679,10 +1703,12 @@ void Layer::make_ironing()
 		            eec->entities, std::move(polylines),
 		            erIroning,
 		            flow_mm3_per_mm, extrusion_width, float(extrusion_height));
-		    }
-		}
+                for (ExtrusionEntity* entity : eec->entities)
+                    static_cast<ExtrusionPath*>(entity)->ironing_exposed_top = area_index < top_area_count;
+            }
+        }
 
-		// Regions up to j were processed.
+        // Regions up to j were processed.
 		i = j;
 	}
 }

@@ -7363,8 +7363,6 @@ std::string GCode::extrude_infill(const Print& print, const std::vector<ObjectBy
     for (const ObjectByExtruder::Island::Region& region : by_region)
         if (!region.infills.empty()) {
             m_config.apply(print.get_print_region(&region - &by_region.front()).config());
-            if (ironing && horizontal_top_fuzzy_skin_enabled(m_config, this->on_first_layer()) && !m_config.fuzzy_skin_ironing.value)
-                continue;
             extrusions.clear();
             extrusions.reserve(region.infills.size());
             for (ExtrusionEntity* ee : region.infills)
@@ -7790,6 +7788,12 @@ std::string GCode::set_region_process_overrides(ExtrusionRole role)
 
 std::string GCode::_extrude(const ExtrusionPath& path, std::string description, double speed)
 {
+    // Disabling texture-following ironing skips exposed fuzzy tops only; buried
+    // AllSolid/EveryOtherLayer passes can still smooth each planar layer.
+    if (path.role() == erIroning && path.ironing_exposed_top && horizontal_top_fuzzy_skin_enabled(m_config, this->on_first_layer()) &&
+        !m_config.fuzzy_skin_ironing.value)
+        return {};
+
     std::string gcode = this->set_region_process_overrides(path.role());
 
     if (is_bridge(path.role()))
@@ -7797,8 +7801,9 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
 
     const ExtrusionPathSloped* sloped = dynamic_cast<const ExtrusionPathSloped*>(&path);
 
-    const HorizontalFuzzyKind fuzzy_kind = sloped == nullptr ? horizontal_fuzzy_kind(m_config, path.role(), this->on_first_layer()) :
-                                                               HorizontalFuzzyKind::None;
+    const HorizontalFuzzyKind fuzzy_kind = sloped == nullptr && (path.role() != erIroning || path.ironing_exposed_top) ?
+                                               horizontal_fuzzy_kind(m_config, path.role(), this->on_first_layer()) :
+                                               HorizontalFuzzyKind::None;
     const Feature::FuzzySkin::FuzzySurfaceConfig             fuzzy_config       = horizontal_fuzzy_config(m_config, fuzzy_kind);
     const Feature::FuzzySkin::FuzzySurfaceType fuzzy_surface_type = fuzzy_kind == HorizontalFuzzyKind::Lower ?
                                                                         Feature::FuzzySkin::FuzzySurfaceType::Lower :
