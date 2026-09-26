@@ -36,6 +36,8 @@ struct FuzzySurfaceConfig
 {
     double    point_distance{0.3};
     double    displacement{0.2};
+    // Periodic returns to nominal Z for bed contact / bonding to the next layer.
+    double    anchor_distance{0.0};
     bool      connect_boundaries{true};
     bool      compensate_extrusion{true};
     double    bridge_compensation_multiplier{3.0};

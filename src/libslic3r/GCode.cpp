@@ -142,6 +142,8 @@ static Feature::FuzzySkin::FuzzySurfaceConfig horizontal_fuzzy_config(const Full
     result.noise_scale                    = config.fuzzy_skin_scale.value;
     result.noise_octaves                  = config.fuzzy_skin_octaves.value;
     result.noise_persistence              = config.fuzzy_skin_persistence.value;
+    if (kind == HorizontalFuzzyKind::Bed || kind == HorizontalFuzzyKind::Lower)
+        result.anchor_distance = std::clamp(4.0 * result.point_distance, 0.4, 2.0);
     if (kind == HorizontalFuzzyKind::Bed)
         result.displacement = Feature::FuzzySkin::fuzzy_bed_surface_displacement(result.displacement,
                                                                                   config.initial_layer_print_height.value);
@@ -7481,7 +7483,15 @@ std::string GCode::_extrude(const ExtrusionPath& path, std::string description, 
 
     const HorizontalFuzzyKind fuzzy_kind = sloped == nullptr ? horizontal_fuzzy_kind(m_config, path.role(), this->on_first_layer()) :
                                                                HorizontalFuzzyKind::None;
-    const Feature::FuzzySkin::FuzzySurfaceConfig             fuzzy_config       = horizontal_fuzzy_config(m_config, fuzzy_kind);
+    Feature::FuzzySkin::FuzzySurfaceConfig fuzzy_config = horizontal_fuzzy_config(m_config, fuzzy_kind);
+    // Retain a shallow envelope and regular nominal-height bonding points for the
+    // next planar layer. Large support gaps must not turn texture into deep sags.
+    if (fuzzy_kind == HorizontalFuzzyKind::Lower || fuzzy_kind == HorizontalFuzzyKind::Bed) {
+        double bonding_height = std::max(0.0, double(path.height));
+        if (m_layer != nullptr && m_layer->upper_layer != nullptr)
+            bonding_height = std::min(bonding_height, m_layer->upper_layer->height);
+        fuzzy_config.displacement = std::min(fuzzy_config.displacement, 0.25 * bonding_height);
+    }
     const Feature::FuzzySkin::FuzzySurfaceType fuzzy_surface_type = fuzzy_kind == HorizontalFuzzyKind::Lower ?
                                                                         Feature::FuzzySkin::FuzzySurfaceType::Lower :
                                                                     fuzzy_kind == HorizontalFuzzyKind::Bed ?

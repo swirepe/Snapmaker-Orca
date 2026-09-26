@@ -3052,8 +3052,9 @@ void PrintConfigDef::init_fff_params()
     def           = this->add("fuzzy_skin_lower_surface", coBool);
     def->label    = L("Fuzzy skin on supported lower surfaces");
     def->category = L("Others");
-    def->tooltip  = L(
-        "Add downward non-planar fuzzy skin to supported external bridge surfaces. Unsupported and internal bridges are not changed.");
+    def->tooltip  = L("Add downward non-planar fuzzy skin to supported external bridge surfaces, with regular nominal-height bonding "
+                     "anchors. Displacement is limited to 25% of the current and next layer heights and available support clearance. "
+                     "Unsupported and internal bridges are not changed.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
@@ -3068,8 +3069,9 @@ void PrintConfigDef::init_fff_params()
     def           = this->add("fuzzy_skin_bed_surface", coBool);
     def->label    = L("Fuzzy skin on bed-facing surfaces");
     def->category = L("Others");
-    def->tooltip  = L("Add positive-Z fuzzy texture to bottom-surface extrusion on the first layer. Displacement is capped at 25% of "
-                      "the initial layer height and never moves below the configured print height.");
+    def->tooltip = L("Add positive-Z fuzzy texture to bottom-surface extrusion on the first layer. Displacement is capped at 25% of "
+                     "the current and next layer heights and never moves below the configured print height. Regular nominal-height anchors "
+                     "retain bed contact.");
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 

@@ -1,6 +1,7 @@
 #include "FuzzySkinCalibration.hpp"
 
 #include "PrintConfig.hpp"
+#include "Model.hpp"
 
 #include <algorithm>
 #include <array>
@@ -74,6 +75,12 @@ std::vector<double> fuzzy_skin_calibration_values(const FuzzySkinCalibrationRang
     return values;
 }
 
+bool is_fuzzy_skin_calibration_cube(FuzzySkinCalibrationMode mode)
+{
+    return mode == FuzzySkinCalibrationMode::CubeSingle || mode == FuzzySkinCalibrationMode::CubeSeries ||
+           mode == FuzzySkinCalibrationMode::CubeOrthogonal;
+}
+
 FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibrationConfig& config)
 {
     if (!std::isfinite(config.coupon_width) || !std::isfinite(config.coupon_depth) || !std::isfinite(config.coupon_height) ||
@@ -87,8 +94,22 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
     if (config.distance.minimum < 0.01 || config.distance.maximum > 5.0)
         throw std::invalid_argument("Fuzzy skin calibration point distance must be between 0.01 and 5 mm");
 
-    const std::vector<double> thicknesses = fuzzy_skin_calibration_values(config.thickness);
-    const std::vector<double> distances   = fuzzy_skin_calibration_values(config.distance);
+    std::vector<double> thicknesses;
+    std::vector<double> distances;
+    if (config.mode == FuzzySkinCalibrationMode::CubeSingle) {
+        thicknesses = fuzzy_skin_calibration_values({config.thickness.minimum, config.thickness.minimum, 1.0});
+        distances   = fuzzy_skin_calibration_values({config.distance.minimum, config.distance.minimum, 1.0});
+    } else if (config.mode == FuzzySkinCalibrationMode::CubeOrthogonal) {
+        if (config.thickness.minimum >= config.thickness.maximum || config.distance.minimum >= config.distance.maximum)
+            throw std::invalid_argument("The L9 cube array requires distinct minimum and maximum values for both factors");
+        thicknesses = fuzzy_skin_calibration_values(
+            {config.thickness.minimum, config.thickness.maximum, 0.5 * (config.thickness.maximum - config.thickness.minimum)});
+        distances = fuzzy_skin_calibration_values(
+            {config.distance.minimum, config.distance.maximum, 0.5 * (config.distance.maximum - config.distance.minimum)});
+    } else {
+        thicknesses = fuzzy_skin_calibration_values(config.thickness);
+        distances   = fuzzy_skin_calibration_values(config.distance);
+    }
     FuzzySkinCalibrationPlan  plan;
     plan.shared_object = config.mode == FuzzySkinCalibrationMode::SupportedUnderside;
 
@@ -151,6 +172,65 @@ void apply_fuzzy_skin_calibration_print_config(DynamicPrintConfig& config)
     config.set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByLayer));
 }
 
+void populate_fuzzy_skin_calibration_cube(ModelObject&                      object,
+                                          const FuzzySkinCalibrationConfig& config,
+                                          const FuzzySkinCalibrationCell&   cell)
+{
+    const float                      half   = float(0.5 * config.coupon_width);
+    const float                      height = float(config.coupon_width);
+    const std::array<Vec2f, 4>       corners{{{-half, -half}, {half, -half}, {half, half}, {-half, half}}};
+    const std::array<const char*, 4> names{{"Plain", "Fuzzy", "Ironed", "Fuzzy and ironed"}};
+    // Four triangular prisms tile the cube without overlaps. Each owns one entire
+    // outer wall and the triangular quarter of the top touching that wall.
+    for (size_t side = 0; side < 4; ++side) {
+        const Vec2f&         a = corners[side];
+        const Vec2f&         b = corners[(side + 1) % 4];
+        indexed_triangle_set mesh;
+        mesh.vertices        = {{0.f, 0.f, 0.f},    {a.x(), a.y(), 0.f},    {b.x(), b.y(), 0.f},
+                                {0.f, 0.f, height}, {a.x(), a.y(), height}, {b.x(), b.y(), height}};
+        mesh.indices         = {{0, 2, 1}, {3, 4, 5}, {0, 1, 4}, {0, 4, 3}, {1, 2, 5}, {1, 5, 4}, {2, 0, 3}, {2, 3, 5}};
+        ModelVolume* volume  = object.add_volume(TriangleMesh(std::move(mesh)), ModelVolumeType::MODEL_PART, false);
+        const bool   fuzzy   = side == 1 || side == 3;
+        const bool   ironing = side >= 2;
+        volume->name         = std::string(names[side]) + " " + cell.label;
+        ModelConfig& target  = volume->config;
+        target.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(fuzzy ? FuzzySkinType::External : FuzzySkinType::None));
+        target.set_key_value("fuzzy_skin_thickness", new ConfigOptionFloat(cell.thickness));
+        target.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(cell.distance));
+        target.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(fuzzy));
+        target.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
+        target.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(false));
+        target.set_key_value("fuzzy_skin_first_layer", new ConfigOptionBool(false));
+        target.set_key_value("fuzzy_skin_connect_walls", new ConfigOptionBool(true));
+        target.set_key_value("fuzzy_skin_compensate_extrusion", new ConfigOptionBool(true));
+        target.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(fuzzy && ironing));
+        // Reuse the transparent calibration's all-solid-layer ironing process.
+        // The nozzle irons the horizontal layer up to its edge on every layer.
+        target.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(ironing ? IroningType::AllSolid : IroningType::NoIroning));
+        target.set_key_value("ironing_inset", new ConfigOptionFloat(0.01));
+
+        if (config.labels) {
+            const std::array<std::string, 3> lines{{"F=" + std::to_string(fuzzy) + " I=" + std::to_string(ironing),
+                                                    "T=" + fuzzy_skin_calibration_value_label(cell.thickness),
+                                                    "D=" + fuzzy_skin_calibration_value_label(cell.distance)}};
+            for (size_t line = 0; line < lines.size(); ++line) {
+                TriangleMesh label = make_fuzzy_skin_calibration_label(lines[line], std::min(1.6, double(height) / 10.0), 0.35);
+                label.rotate_x(float(0.5 * PI));
+                label.translate(0.f, -half + 0.05f, float(height * 0.5 + (1.0 - double(line)) * 2.5));
+                label.rotate_z(float(side * 0.5 * PI));
+                ModelVolume* label_volume = object.add_volume(std::move(label), ModelVolumeType::MODEL_PART, false);
+                label_volume->name        = "Wall label " + lines[line];
+                label_volume->config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
+                label_volume->config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(false));
+                label_volume->config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
+                label_volume->config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(false));
+                label_volume->config.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(false));
+                label_volume->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
+            }
+        }
+    }
+}
+
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height)
 {
     if (width <= 0.0 || depth <= 0.0 || height <= 0.0)
@@ -185,11 +265,11 @@ TriangleMesh make_fuzzy_skin_calibration_bed_patch(double radius, double height)
     return TriangleMesh(its_make_cylinder(radius, height, PI / 36.0));
 }
 
-TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double glyph_height, double relief)
+TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double glyph_height, double relief, double pedestal_height)
 {
     if (text.empty())
         return {};
-    if (glyph_height <= 0.0 || relief <= 0.0)
+    if (glyph_height <= 0.0 || relief <= 0.0 || !std::isfinite(pedestal_height) || pedestal_height < 0.0)
         throw std::invalid_argument("Calibration label dimensions must be positive");
 
     const double         cell       = glyph_height / 7.0;
@@ -205,9 +285,15 @@ TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double g
                     indexed_triangle_set dot = its_make_cube(pixel, pixel, relief);
                     const double         x   = -0.5 * text_width + double(character) * advance + double(column) * cell;
                     const double         y   = 0.5 * glyph_height - double(row + 1) * cell;
-                    translate(dot, float(x), float(y), 0.f);
+                    translate(dot, float(x), float(y), float(pedestal_height));
                     its_merge(mesh, dot);
                 }
+    }
+    if (pedestal_height > 0.0) {
+        // A continuous smooth pad keeps the glyphs above the texture peaks.
+        indexed_triangle_set pedestal = its_make_cube(text_width + 0.8, glyph_height + 0.8, pedestal_height + 0.02);
+        translate(pedestal, float(-0.5 * text_width - 0.4), float(-0.5 * glyph_height - 0.4), 0.f);
+        its_merge(mesh, pedestal);
     }
     return TriangleMesh(std::move(mesh));
 }

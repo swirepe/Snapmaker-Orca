@@ -17400,3 +17400,31 @@ msgstr ""
 #: resources/data/hints.ini: [hint:Avoid warping]
 msgid "Avoid warping\nDid you know that when printing materials that are prone to warping such as ABS, appropriately increasing the heatbed temperature can reduce the probability of warping."
 msgstr ""
+
+#: src/slic3r/GUI/calib_dlg.cpp
+msgid "Four-treatment cube"
+msgstr ""
+
+#: src/slic3r/GUI/calib_dlg.cpp
+msgid "Four-treatment cube series"
+msgstr ""
+
+#: src/slic3r/GUI/calib_dlg.cpp
+msgid "Four-treatment cube L9 array"
+msgstr ""
+
+#: src/slic3r/GUI/calib_dlg.cpp
+msgid "Cubes compare plain, fuzzy, ironed, and fuzzy + ironed walls and top quarters. Ironing runs on each solid layer up to the wall edge. Single cubes use minimum values; L9 arrays use minimum, midpoint, and maximum for both factors. Labels identify each wall."
+msgstr ""
+
+#: src/libslic3r/PrintConfig.cpp
+msgid "Add downward non-planar fuzzy skin to supported external bridge surfaces, with regular nominal-height bonding anchors. Displacement is limited to 25% of the current and next layer heights and available support clearance. Unsupported and internal bridges are not changed."
+msgstr ""
+
+#: src/libslic3r/PrintConfig.cpp
+msgid "Add positive-Z fuzzy texture to bottom-surface extrusion on the first layer. Displacement is capped at 25% of the current and next layer heights and never moves below the configured print height. Regular nominal-height anchors retain bed contact."
+msgstr ""
+
+#: src/slic3r/GUI/calib_dlg.cpp
+msgid "Raise card labels on smooth pedestals"
+msgstr ""

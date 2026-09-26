@@ -214,7 +214,10 @@ double calculate_infill_rotation_angle(const PrintObject* object,
 
 struct SurfaceFillParams
 {
-	// Zero based extruder ID.
+    // Horizontal texture is applied at G-code export using the owning region's
+    // config. Keep external fills with different regional settings separate.
+    size_t horizontal_fuzzy_region = 0;
+    // Zero based extruder ID.
     unsigned int 	extruder = 0;
 	// Infill pattern, adjusted for the density etc.
     InfillPattern  	pattern = InfillPattern(0);
@@ -278,6 +281,7 @@ struct SurfaceFillParams
 		if (this->bridge_angle > rhs.bridge_angle) return true;
 		if (this->bridge_angle < rhs.bridge_angle) return false;
 
+		RETURN_COMPARE_NON_EQUAL(horizontal_fuzzy_region);
 		RETURN_COMPARE_NON_EQUAL(extruder);
 		RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, pattern);
 		RETURN_COMPARE_NON_EQUAL(spacing);
@@ -307,7 +311,8 @@ struct SurfaceFillParams
 	}
 
 	bool operator==(const SurfaceFillParams &rhs) const {
-		return  this->extruder 			== rhs.extruder 		&&
+		return this->horizontal_fuzzy_region == rhs.horizontal_fuzzy_region &&
+                this->extruder 			== rhs.extruder 		&&
 				this->pattern 			== rhs.pattern 			&&
 				this->spacing 			== rhs.spacing 			&&
 				this->overlap 			== rhs.overlap 			&&
@@ -832,7 +837,13 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
             it->second.push_back(exp);
     };
 
-	for (size_t region_id = 0; region_id < layer.regions().size(); ++ region_id) {
+    const bool preserve_fuzzy_regions = std::any_of(layer.regions().begin(), layer.regions().end(), [](const LayerRegion* region) {
+        const auto& config = region->region().config();
+        return config.fuzzy_skin.value != FuzzySkinType::None &&
+               (config.fuzzy_skin_top_surface.value || config.fuzzy_skin_lower_surface.value || config.fuzzy_skin_bed_surface.value);
+    });
+
+    for (size_t region_id = 0; region_id < layer.regions().size(); ++ region_id) {
 		const LayerRegion  &layerm = *layer.regions()[region_id];
 		region_to_surface_params[region_id].assign(layerm.fill_surfaces.size(), nullptr);
 	    for (const Surface &surface : layerm.fill_surfaces.surfaces)
@@ -840,7 +851,8 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
 	        	has_internal_voids = true;
 	        else {
 		        const PrintRegionConfig &region_config = layerm.region().config();
-		        FlowRole extrusion_role = surface.is_top() ? frTopSolidInfill : (surface.is_solid() ? frSolidInfill : frInfill);
+                params.horizontal_fuzzy_region         = preserve_fuzzy_regions && surface.is_external() ? region_id + 1 : 0;
+                FlowRole extrusion_role = surface.is_top() ? frTopSolidInfill : (surface.is_solid() ? frSolidInfill : frInfill);
 		        bool     is_bridge 	    = layer.id() > 0 && surface.is_bridge();
                 const unsigned int effective_extruder = layerm.extruder(extrusion_role);
 		        params.extruder 	 = effective_extruder;

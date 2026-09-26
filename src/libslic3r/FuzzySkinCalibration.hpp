@@ -10,8 +10,9 @@
 namespace Slic3r {
 
 class DynamicPrintConfig;
+class ModelObject;
 
-enum class FuzzySkinCalibrationMode { TextureMatrix, IroningComparison, SupportedUnderside };
+enum class FuzzySkinCalibrationMode { TextureMatrix, IroningComparison, SupportedUnderside, CubeSingle, CubeSeries, CubeOrthogonal };
 
 enum class FuzzySkinCalibrationLayout { ConnectedPanel, BreakawayCoupons };
 
@@ -33,6 +34,7 @@ struct FuzzySkinCalibrationConfig
     double                     coupon_height{2.0};
     double                     gap{2.0};
     bool                       labels{true};
+    bool                       label_pedestal{false};
 };
 
 struct FuzzySkinCalibrationCell
@@ -67,10 +69,15 @@ FuzzySkinCalibrationBedPatch fuzzy_skin_calibration_bed_patch(const FuzzySkinCal
 double fuzzy_skin_calibration_bed_thickness(const FuzzySkinCalibrationConfig& config, double thickness, double first_layer_height);
 void apply_fuzzy_skin_calibration_print_config(DynamicPrintConfig& config);
 
+bool is_fuzzy_skin_calibration_cube(FuzzySkinCalibrationMode mode);
+void populate_fuzzy_skin_calibration_cube(ModelObject&                      object,
+                                          const FuzzySkinCalibrationConfig& config,
+                                          const FuzzySkinCalibrationCell&   cell);
+
 TriangleMesh make_fuzzy_skin_calibration_coupon(double width, double depth, double height);
 TriangleMesh make_fuzzy_skin_calibration_bridge(double width, double depth, double roof_height, double roof_thickness);
 TriangleMesh make_fuzzy_skin_calibration_bed_patch(double radius, double height);
-TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double glyph_height, double relief);
+TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double glyph_height, double relief, double pedestal_height = 0.0);
 
 } // namespace Slic3r
 
