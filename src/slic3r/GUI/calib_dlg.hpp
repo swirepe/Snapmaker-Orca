@@ -269,6 +269,7 @@ private:
     wxTextCtrl* m_distance_step{nullptr};
     wxTextCtrl* m_coupon_size{nullptr};
     wxCheckBox* m_labels{nullptr};
+    wxCheckBox* m_label_pedestal{nullptr};
 };
 }} // namespace Slic3r::GUI
 #endif

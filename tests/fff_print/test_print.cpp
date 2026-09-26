@@ -177,3 +177,25 @@ SCENARIO("Print: Brim generation", "[Print]") {
         }
     }
 }
+
+TEST_CASE("Vertical fuzzy skin contributes to height and clearance safety", "[Print][FuzzySurface]")
+{
+    DynamicPrintConfig config = default_print_config();
+    config.set_key_value("printable_height", new ConfigOptionFloat(2.5));
+    config.set_key_value("nozzle_height", new ConfigOptionFloat(2.5));
+    config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::External));
+    config.set_key_value("fuzzy_skin_thickness", new ConfigOptionFloat(0.5));
+    config.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(0.3));
+    config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(true));
+
+    Model        model;
+    ModelObject *object = model.add_object("fuzzy height", "", make_cube(10.0, 10.0, 2.3));
+    object->add_instance();
+    Print print;
+    print.auto_assign_extruders(object);
+    print.apply(model, config);
+
+    REQUIRE_FALSE(print.is_all_objects_are_short());
+    REQUIRE_FALSE(print.validate().string.empty());
+}
+

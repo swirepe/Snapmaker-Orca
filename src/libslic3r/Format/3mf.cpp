@@ -2065,7 +2065,25 @@ ModelVolumeType type_from_string(const std::string &s)
             "auxiliary_fan_speed_override",
             "extruder",
             "non_traversable_extruders",
-            "modifier"
+            "modifier",
+            "fuzzy_skin",
+            "fuzzy_skin_thickness",
+            "fuzzy_skin_point_distance",
+            "fuzzy_skin_first_layer",
+            "fuzzy_skin_noise_type",
+            "fuzzy_skin_mode",
+            "fuzzy_skin_scale",
+            "fuzzy_skin_octaves",
+            "fuzzy_skin_persistence",
+            "fuzzy_skin_top_surface",
+            "fuzzy_skin_lower_surface",
+            "fuzzy_skin_top_surface_first_layer",
+            "fuzzy_skin_bed_surface",
+            "fuzzy_skin_connect_walls",
+            "fuzzy_skin_compensate_extrusion",
+            "fuzzy_skin_bridge_compensation_multiplier",
+            "fuzzy_skin_min_support_distance",
+            "fuzzy_skin_ironing"
         };
 
         auto itor = std::find(valid_keys.begin(), valid_keys.end(), key);

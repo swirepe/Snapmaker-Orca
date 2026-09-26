@@ -1725,6 +1725,9 @@ Fuzzy_Skin_Calibration_Dlg::Fuzzy_Skin_Calibration_Dlg(wxWindow* parent, wxWindo
     m_mode->Append(_L("Texture matrix"));
     m_mode->Append(_L("Ironing comparison"));
     m_mode->Append(_L("Supported underside"));
+    m_mode->Append(_L("Four-treatment cube"));
+    m_mode->Append(_L("Four-treatment cube series"));
+    m_mode->Append(_L("Four-treatment cube L9 array"));
     m_mode->SetSelection(0);
     add_control(_L("Mode"), m_mode);
 
@@ -1758,10 +1761,17 @@ Fuzzy_Skin_Calibration_Dlg::Fuzzy_Skin_Calibration_Dlg(wxWindow* parent, wxWindo
     m_labels->SetValue(true);
     settings->AddSpacer(1);
     settings->Add(m_labels, 0, wxTOP, FromDIP(4));
+    m_label_pedestal = new wxCheckBox(this, wxID_ANY, _L("Raise card labels on smooth pedestals"));
+    settings->AddSpacer(1);
+    settings->Add(m_label_pedestal, 0, wxTOP, FromDIP(4));
+    m_labels->Bind(wxEVT_CHECKBOX,
+                   [this](wxCommandEvent&) { m_label_pedestal->Enable(m_labels->GetValue() && m_mode->GetSelection() < 3); });
     root->Add(settings, 0, wxALL | wxEXPAND, FromDIP(12));
 
     auto* note = new wxStaticText(this, wxID_ANY,
-                                  _L("Connected panels use smooth row and column headers. Breakaway coupons carry their own labels."));
+                                  _L("Cubes compare plain, fuzzy, ironed, and fuzzy + ironed walls and top quarters. Ironing runs on each "
+                                     "solid layer up to the wall edge. Single cubes use minimum values; L9 arrays use minimum, midpoint, "
+                                     "and maximum for both factors. Labels identify each wall."));
     note->Wrap(FromDIP(430));
     root->Add(note, 0, wxLEFT | wxRIGHT | wxBOTTOM | wxEXPAND, FromDIP(12));
 
@@ -1787,7 +1797,10 @@ FuzzySkinCalibrationConfig Fuzzy_Skin_Calibration_Dlg::read_config() const
     FuzzySkinCalibrationConfig config;
     config.mode         = m_mode->GetSelection() == 0 ? FuzzySkinCalibrationMode::TextureMatrix :
                           m_mode->GetSelection() == 1 ? FuzzySkinCalibrationMode::IroningComparison :
-                                                        FuzzySkinCalibrationMode::SupportedUnderside;
+                          m_mode->GetSelection() == 2 ? FuzzySkinCalibrationMode::SupportedUnderside :
+                          m_mode->GetSelection() == 3 ? FuzzySkinCalibrationMode::CubeSingle :
+                          m_mode->GetSelection() == 4 ? FuzzySkinCalibrationMode::CubeSeries :
+                                                        FuzzySkinCalibrationMode::CubeOrthogonal;
     config.layout       = m_layout->GetSelection() == 0 ? FuzzySkinCalibrationLayout::ConnectedPanel :
                                                           FuzzySkinCalibrationLayout::BreakawayCoupons;
     config.thickness    = {read(m_thickness_min, "minimum thickness"), read(m_thickness_max, "maximum thickness"),
@@ -1796,6 +1809,7 @@ FuzzySkinCalibrationConfig Fuzzy_Skin_Calibration_Dlg::read_config() const
                            read(m_distance_step, "point distance step")};
     config.coupon_width = config.coupon_depth = read(m_coupon_size, "coupon size");
     config.labels                             = m_labels->GetValue();
+    config.label_pedestal                     = m_label_pedestal->GetValue();
     return config;
 }
 
@@ -1813,10 +1827,16 @@ void Fuzzy_Skin_Calibration_Dlg::on_start(wxCommandEvent&)
 
 void Fuzzy_Skin_Calibration_Dlg::on_mode_changed(wxCommandEvent&)
 {
-    const bool supported_underside = m_mode->GetSelection() == 2;
-    if (supported_underside)
+    const int mode = m_mode->GetSelection();
+    m_label_pedestal->Enable(m_labels->GetValue() && mode < 3);
+    const bool separate = mode >= 2;
+    if (separate)
         m_layout->SetSelection(1);
-    m_layout->Enable(!supported_underside);
+    m_layout->Enable(!separate);
+    m_thickness_max->Enable(mode != 3);
+    m_distance_max->Enable(mode != 3);
+    m_thickness_step->Enable(mode != 3 && mode != 5);
+    m_distance_step->Enable(mode != 3 && mode != 5);
 }
 
 void Fuzzy_Skin_Calibration_Dlg::on_dpi_changed(const wxRect&)

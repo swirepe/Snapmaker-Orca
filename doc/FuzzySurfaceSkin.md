@@ -2,7 +2,7 @@
 
 ## Status
 
-Implementation specification for `codex/topfuzz`.
+Implementation reference for `codex/topfuzz`. The current calibration also includes four-treatment cubes (single, series, and L9); see the [settings guide](print_settings/others/others_settings_fuzzy_skin.md) for use and bonding details.
 
 ## Summary
 
@@ -109,7 +109,9 @@ The maximum downward amplitude is:
 
 ```text
 min(fuzzy_skin_thickness,
-    max(0, support_top_z_distance - fuzzy_skin_min_support_distance))
+    max(0, support_top_z_distance - fuzzy_skin_min_support_distance),
+    0.25 * current_extrusion_height,
+    0.25 * next_layer_height)  // when a next layer exists
 ```
 
 If that amplitude is zero, the path is emitted unchanged.
@@ -126,7 +128,7 @@ Horizontal fuzz is produced during G-code path emission, while extrusion role, r
 
 Top-surface displacement is in `[0, fuzzy_skin_thickness]`. Supported-lower displacement is in `[-bounded_amplitude, 0]`.
 
-When boundary connection is enabled, the first and last point of each extrusion path are forced to nominal Z. Intermediate points still sample the field. When it is disabled, endpoints sample the field normally, but nominal Z restoration remains mandatory when leaving the fuzzy path.
+When boundary connection is enabled, the first and last point of each extrusion path are forced to nominal Z. Top-surface intermediate points sample the field. Bed and lower surfaces additionally return to nominal Z every `clamp(4 * point_distance, 0.4, 2.0)` mm along the path, and at both endpoints, irrespective of this option. These are bed-contact points or next-layer bonding anchors, respectively; the configured support clearance is preserved. Their displacement also stays within 25% of the current extrusion height and the next layer height, when present.
 
 The field must be stable for a given model position, layer, and configuration. Coherent noise types use the existing libnoise modules and parameters. Classic noise uses a deterministic XY lattice/hash field rather than the current thread-local random wall generator so a later ironing path can reproduce the same surface. The field has no user-visible seed in this version.
 
@@ -152,7 +154,7 @@ Fuzzy ironing is experimental and is meaningful only when top-surface fuzz and o
 
 - If top-surface fuzz is on and `fuzzy_skin_ironing` is off, conventional ironing paths over that fuzzy region are skipped so they cannot flatten or collide with the texture.
 - If `fuzzy_skin_ironing` is on, `erIroning` paths sample the exact same deterministic top-surface height field at their own XY coordinates.
-- Ironing retains its configured pattern, spacing, speed, inset, flow, fan, and extrusion role.
+- Ironing retains its configured pattern, spacing, speed, inset, flow, fan, and extrusion role. With all-solid-layer ironing, only exposed tops follow the fuzzy field; buried ironing remains planar.
 - Boundary connection and extrusion compensation apply to fuzzy ironing just as they do to the underlying top surface.
 - Ironing outside fuzzy-enabled regions remains unchanged.
 
@@ -165,7 +167,7 @@ The existing fuzzy-skin painter remains the only painting UI. Painted facets alr
 - Painted top facets can generate fuzzy top infill.
 - Painted supported underside facets can generate fuzzy bridge infill.
 - Unpainted derived regions remain unchanged.
-- No new painter state or mesh annotation is introduced.
+- Fuzzy painting includes horizontal facets and explicitly enables top fuzz in painted regions. Overlapping ironing paint enables height-following ironing; plain, fuzzy-only, ironing-only, and combined regions are kept distinct.
 
 ## Preview and G-code
 
