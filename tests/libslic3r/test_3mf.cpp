@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "libslic3r/Model.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"

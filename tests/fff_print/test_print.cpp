@@ -3,6 +3,7 @@
 #include "libslic3r/libslic3r.h"
 #include "libslic3r/Print.hpp"
 #include "libslic3r/Layer.hpp"
+#include "libslic3r/FuzzySkinCalibration.hpp"
 
 #include "test_data.hpp"
 
@@ -199,3 +200,45 @@ TEST_CASE("Vertical fuzzy skin contributes to height and clearance safety", "[Pr
     REQUIRE_FALSE(print.validate().string.empty());
 }
 
+
+TEST_CASE("Four-treatment cube slices with distinct top and ironing regions", "[Print][FuzzySurface][Calibration]")
+{
+    FuzzySkinCalibrationConfig calibration;
+    calibration.mode         = FuzzySkinCalibrationMode::CubeSingle;
+    calibration.coupon_width = calibration.coupon_depth = 10.0;
+    calibration.labels                                  = false;
+    Model        model;
+    ModelObject* object = model.add_object();
+    populate_fuzzy_skin_calibration_cube(*object, calibration, build_fuzzy_skin_calibration_plan(calibration).cells.front());
+    object->add_instance();
+    DynamicPrintConfig config = default_print_config();
+    config.set_key_value("sparse_infill_density", new ConfigOptionPercent(100));
+    config.set_key_value("top_shell_layers", new ConfigOptionInt(3));
+    Print print;
+    print.auto_assign_extruders(object);
+    print.apply(model, config);
+    print.set_status_silent();
+    const std::string output = gcode(print);
+    REQUIRE_FALSE(output.empty());
+    const Layer* top = print.objects().front()->layers().back();
+    REQUIRE(top->regions().size() == 4);
+    size_t fuzzy_regions = 0, ironing_regions = 0, fuzzy_ironing_regions = 0;
+    for (const LayerRegion* region : top->regions()) {
+        const auto& settings = region->region().config();
+        fuzzy_regions += settings.fuzzy_skin_top_surface.value;
+        fuzzy_ironing_regions += settings.fuzzy_skin_ironing.value;
+        bool       has_top_fill = false, has_ironing = false;
+        const auto flattened = region->fills.flatten();
+        for (const auto* entity : flattened.entities) {
+            has_top_fill |= entity->role() == erTopSolidInfill;
+            has_ironing |= entity->role() == erIroning;
+        }
+        CAPTURE(settings.fuzzy_skin.value, settings.ironing_type.value, flattened.entities.size(), region->slices.surfaces.size());
+        REQUIRE(has_top_fill);
+        CHECK(has_ironing == (settings.ironing_type.value == IroningType::AllSolid));
+        ironing_regions += has_ironing;
+    }
+    REQUIRE(fuzzy_regions == 2);
+    REQUIRE(ironing_regions == 2);
+    REQUIRE(fuzzy_ironing_regions == 1);
+}
