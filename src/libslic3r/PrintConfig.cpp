@@ -3202,8 +3202,9 @@ void PrintConfigDef::init_fff_params()
     def           = this->add("fuzzy_skin_lower_surface", coBool);
     def->label    = L("Fuzzy skin on supported lower surfaces");
     def->category = L("Others");
-    def->tooltip  = L(
-        "Add downward non-planar fuzzy skin to supported external bridge surfaces. Unsupported and internal bridges are not changed.");
+    def->tooltip  = L("Add downward non-planar fuzzy skin to supported external bridge surfaces, with regular nominal-height bonding "
+                     "anchors. Displacement is limited to 25% of the current and next layer heights and available support clearance. "
+                     "Unsupported and internal bridges are not changed.");
     def->mode = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
@@ -3218,8 +3219,9 @@ void PrintConfigDef::init_fff_params()
     def           = this->add("fuzzy_skin_bed_surface", coBool);
     def->label    = L("Fuzzy skin on bed-facing surfaces");
     def->category = L("Others");
-    def->tooltip  = L("Add positive-Z fuzzy texture to bottom-surface extrusion on the first layer. Displacement is capped at 25% of "
-                      "the initial layer height and never moves below the configured print height.");
+    def->tooltip = L("Add positive-Z fuzzy texture to bottom-surface extrusion on the first layer. Displacement is capped at 25% of "
+                     "the current and next layer heights and never moves below the configured print height. Regular nominal-height anchors "
+                     "retain bed contact.");
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionBool(false));
 
@@ -3234,7 +3236,8 @@ void PrintConfigDef::init_fff_params()
     def           = this->add("fuzzy_skin_compensate_extrusion", coBool);
     def->label    = L("Compensate fuzzy-surface extrusion");
     def->category = L("Others");
-    def->tooltip  = L("Increase extrusion to account for the additional distance traveled by non-planar fuzzy-surface segments.");
+    def->tooltip  = L("Increase extrusion to account for the additional distance traveled by non-planar fuzzy-surface segments. The "
+                      "effective multiplier is capped at 5x to prevent unsafe flow spikes.");
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionBool(true));
 
@@ -3920,6 +3923,14 @@ void PrintConfigDef::init_fff_params()
     def->category = L("Quality");
     def->mode     = comAdvanced;
     def->set_default_value(new ConfigOptionInt(-1));
+
+    // Internal, persistent marker used to reconstruct the transparent/ironing
+    // pane label phase after a project has been saved and reopened.  This is a
+    // model-volume property, not a user-facing process setting.
+    def       = this->add("pane_calibration_label", coBool);
+    def->mode = comDevelop;
+    def->cli  = ConfigOptionDef::nocli;
+    def->set_default_value(new ConfigOptionBool(false));
 
     def = this->add("layer_change_gcode", coString);
     def->label = L("Layer change G-code");

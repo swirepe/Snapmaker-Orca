@@ -184,20 +184,37 @@ std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           po
     Points points;
     points.reserve(polyline.points.size());
     points.emplace_back(polyline.points.front());
+    std::vector<bool> anchors{config.anchor_distance > EPSILON};
+    double            path_distance = 0.0;
+    double            next_anchor   = config.anchor_distance;
     for (const Line& line : polyline.lines()) {
         const double length = unscale<double>(line.length());
         if (length <= EPSILON)
             continue;
 
         const size_t segments = std::max<size_t>(1, static_cast<size_t>(std::ceil(length / config.point_distance)));
-        const Vec2d  delta    = (line.b - line.a).cast<double>();
-        for (size_t segment = 1; segment <= segments; ++segment) {
-            Point point = line.b;
-            if (segment < segments)
-                point = line.a + (delta * (static_cast<double>(segment) / static_cast<double>(segments))).cast<coord_t>();
-            if (point != points.back())
-                points.emplace_back(point);
+        const Vec2d                          delta    = (line.b - line.a).cast<double>();
+        std::vector<std::pair<double, bool>> samples;
+        samples.reserve(segments);
+        for (size_t segment = 1; segment <= segments; ++segment)
+            samples.emplace_back(length * double(segment) / double(segments), false);
+        if (config.anchor_distance > EPSILON) {
+            while (next_anchor <= path_distance + length + EPSILON) {
+                samples.emplace_back(std::clamp(next_anchor - path_distance, 0.0, length), true);
+                next_anchor += config.anchor_distance;
+            }
         }
+        std::sort(samples.begin(), samples.end());
+        for (const auto& sample : samples) {
+            const Point point = sample.first >= length ? line.b : line.a + (delta * (sample.first / length)).cast<coord_t>();
+            if (point != points.back()) {
+                points.emplace_back(point);
+                anchors.emplace_back(sample.second);
+            } else if (sample.second) {
+                anchors.back() = true;
+            }
+        }
+        path_distance += length;
     }
 
     if (points.size() < 2)
@@ -210,7 +227,7 @@ std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           po
         double      offset = fuzzy_surface_noise(position, slice_z, config, noise.get()) * config.displacement;
         if (type == FuzzySurfaceType::Lower)
             offset = -offset;
-        if (config.connect_boundaries && (idx == 0 || idx + 1 == points.size()))
+        if (anchors[idx] || ((config.connect_boundaries || config.anchor_distance > EPSILON) && (idx == 0 || idx + 1 == points.size())))
             offset = 0.0;
 
         double extrusion_multiplier = 1.0;
@@ -219,8 +236,13 @@ std::vector<FuzzySurfacePoint> fuzzy_surface_points(const Polyline&           po
             if (xy_length > EPSILON) {
                 const double dz              = offset - result.back().z_offset;
                 const double geometric_ratio = std::hypot(xy_length, dz) / xy_length;
-                extrusion_multiplier = type == FuzzySurfaceType::Lower ? std::pow(geometric_ratio, config.bridge_compensation_multiplier) :
-                                                                         geometric_ratio;
+                const double compensated = type == FuzzySurfaceType::Lower ?
+                                               std::pow(geometric_ratio, config.bridge_compensation_multiplier) :
+                                               geometric_ratio;
+                constexpr double max_extrusion_multiplier = 5.0;
+                extrusion_multiplier = std::isfinite(compensated) ?
+                                           std::clamp(compensated, 1.0, max_extrusion_multiplier) :
+                                           max_extrusion_multiplier;
             }
         }
         result.push_back({points[idx], offset, extrusion_multiplier});

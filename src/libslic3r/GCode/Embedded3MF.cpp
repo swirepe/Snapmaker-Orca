@@ -1,5 +1,6 @@
 #include "Embedded3MF.hpp"
 
+#include <algorithm>
 #include <array>
 #include <charconv>
 #include <cctype>
@@ -293,6 +294,29 @@ bool append(const std::string &gcode_path, const std::string &project_path, std:
     }
 
     try {
+        // Keep the original comment-only footer discoverable by hosts that inspect
+        // only the end of a file for time, filament, and configuration metadata.
+        // Scan without buffering the footer or ever replaying an executable line.
+        boost::nowide::ifstream original(gcode_path, std::ios::binary);
+        if (!original)
+            throw std::runtime_error("Unable to inspect the G-code file");
+        std::uint64_t footer_offset = 0;
+        std::string   line;
+        while (std::getline(original, line)) {
+            std::string_view comment(line);
+            const auto       first = comment.find_first_not_of(" \t\r");
+            if (first != std::string_view::npos)
+                comment.remove_prefix(first);
+            if (marker_set_for_begin(comment))
+                throw std::runtime_error("G-code already contains an embedded project");
+            if (first != std::string_view::npos && comment.front() != ';') {
+                const auto position = original.tellg();
+                footer_offset       = position == std::streampos(-1) ? original_size : static_cast<std::uint64_t>(position);
+            }
+        }
+        if (!original.eof())
+            throw std::runtime_error("Unable to read the G-code footer");
+
         Sha256                  sha256;
         std::uint64_t           project_size = 0;
         std::array<char, 65536> buffer{};
@@ -359,6 +383,16 @@ bool append(const std::string &gcode_path, const std::string &project_path, std:
             throw std::runtime_error("3MF project changed while it was being embedded");
 
         gcode << SLIC3R_MARKERS.end_marker << '\n';
+        original.clear();
+        original.seekg(static_cast<std::streamoff>(footer_offset));
+        for (std::uint64_t remaining = original_size - footer_offset; remaining > 0;) {
+            const auto count = static_cast<std::streamsize>(std::min<std::uint64_t>(remaining, buffer.size()));
+            original.read(buffer.data(), count);
+            if (original.gcount() != count)
+                throw std::runtime_error("Unable to preserve the G-code footer");
+            gcode.write(buffer.data(), count);
+            remaining -= static_cast<std::uint64_t>(count);
+        }
         gcode.flush();
         if (!gcode)
             throw std::runtime_error("Unable to append the embedded project to the G-code file");

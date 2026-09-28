@@ -1179,11 +1179,13 @@ static bool is_volume_sinking(const indexed_triangle_set &its, const Transform3d
 //#define MMU_SEGMENTATION_DEBUG_TOP_BOTTOM
 
 // Returns segmentation of top and bottom layers based on painting in segmentation gizmos.
-static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_layers(const PrintObject                                               &print_object,
-                                                                                      const std::vector<ExPolygons>                                   &input_expolygons,
-                                                                                      const std::function<ModelVolumeFacetsInfo(const ModelVolume &)> &extract_facets_info,
-                                                                                      const size_t                                                     num_facets_states,
-                                                                                      const std::function<void()>                                     &throw_on_cancel_callback)
+static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_layers(
+    const PrintObject&                                              print_object,
+    const std::vector<ExPolygons>&                                  input_expolygons,
+    const std::function<ModelVolumeFacetsInfo(const ModelVolume&)>& extract_facets_info,
+    const size_t                                                    num_facets_states,
+    const bool                                                      facets_are_materials,
+    const std::function<void()>&                                    throw_on_cancel_callback)
 {
     BOOST_LOG_TRIVIAL(debug) << "Print object segmentation - Segmentation of top and bottom layers in parallel - Begin";
     const size_t num_layers    = input_expolygons.size();
@@ -1339,17 +1341,19 @@ static inline std::vector<std::vector<ExPolygons>> segmentation_top_and_bottom_l
         //BBS: spacing according to width and layer height
         float   extrusion_spacing{ 0.f };
     };
-    auto layer_color_stat = [&layers = std::as_const(layers), &print_object](const size_t layer_idx, const size_t color_idx) -> LayerColorStat {
+    auto layer_color_stat = [&layers = std::as_const(layers), facets_are_materials](const size_t layer_idx,
+                                                                                    const size_t color_idx) -> LayerColorStat {
         LayerColorStat out;
         const Layer &layer = *layers[layer_idx];
         for (const LayerRegion *region : layer.regions())
-            if (const PrintRegionConfig &config = region->region().config();
+            if (const PrintRegionConfig& config = region->region().config();
                 // color_idx == 0 means "don't know" extruder aka the underlying extruder.
                 // As this region may split existing regions, we collect statistics over all regions for color_idx == 0.
-                color_idx == 0 || config.wall_filament == int(color_idx)) {
-                //BBS: the extrusion line width is outer wall rather than inner wall
-                const double nozzle_diameter = print_object.print()->config().nozzle_diameter.get_at(0);
-                double outer_wall_line_width = config.get_abs_value("outer_wall_line_width", nozzle_diameter);
+                !facets_are_materials || color_idx == 0 || config.wall_filament == int(color_idx)) {
+                // BBS: the extrusion line width is outer wall rather than inner wall
+                //  Resolve automatic widths and the region's selected nozzle before
+                //  computing spacing; raw zero (auto) widths yield negative spacing.
+                const double outer_wall_line_width = region->flow(frExternalPerimeter).width();
                 out.extrusion_width     = std::max<float>(out.extrusion_width, outer_wall_line_width);
                 out.top_shell_layers    = std::max<int>(out.top_shell_layers, config.top_shell_layers);
                 out.bottom_shell_layers = std::max<int>(out.bottom_shell_layers, config.bottom_shell_layers);
@@ -1952,14 +1956,16 @@ static bool has_layer_only_one_color(const std::vector<ColoredLines> &colored_po
     return true;
 }
 
-std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject                                               &print_object,
-                                                              const std::function<ModelVolumeFacetsInfo(const ModelVolume &)> &extract_facets_info,
-                                                              const size_t                                                     num_facets_states,
-                                                              const float                                                      segmentation_max_width,
-                                                              const float                                                      segmentation_interlocking_depth,
-                                                              const bool                                                       segmentation_interlocking_beam,
-                                                              const IncludeTopAndBottomLayers                                  include_top_and_bottom_layers,
-                                                              const std::function<void()>                                     &throw_on_cancel_callback)
+std::vector<std::vector<ExPolygons>> segmentation_by_painting(
+    const PrintObject&                                              print_object,
+    const std::function<ModelVolumeFacetsInfo(const ModelVolume&)>& extract_facets_info,
+    const size_t                                                    num_facets_states,
+    const float                                                     segmentation_max_width,
+    const float                                                     segmentation_interlocking_depth,
+    const bool                                                      segmentation_interlocking_beam,
+    const IncludeTopAndBottomLayers                                 include_top_and_bottom_layers,
+    const bool                                                      facets_are_materials,
+    const std::function<void()>&                                    throw_on_cancel_callback)
 {
     const size_t                          num_layers    = print_object.layers().size();
     std::vector<std::vector<ExPolygons>>  segmented_regions(num_layers);
@@ -2174,7 +2180,8 @@ std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject 
     // The first index is extruder number (includes default extruder), and the second one is layer number
     std::vector<std::vector<ExPolygons>> top_and_bottom_layers;
     if (include_top_and_bottom_layers == IncludeTopAndBottomLayers::Yes) {
-        top_and_bottom_layers = segmentation_top_and_bottom_layers(print_object, input_expolygons, extract_facets_info, num_facets_states, throw_on_cancel_callback);
+        top_and_bottom_layers = segmentation_top_and_bottom_layers(print_object, input_expolygons, extract_facets_info, num_facets_states,
+                                                                   facets_are_materials, throw_on_cancel_callback);
         throw_on_cancel_callback();
     }
 
@@ -2230,7 +2237,8 @@ std::vector<std::vector<ExPolygons>> multi_material_segmentation_by_painting(con
         return {mv.mmu_segmentation_facets, mv.is_mm_painted(), false};
     };
 
-    return segmentation_by_painting(print_object, extract_facets_info, num_facets_states, max_width, interlocking_depth, interlocking_beam, IncludeTopAndBottomLayers::Yes, throw_on_cancel_callback);
+    return segmentation_by_painting(print_object, extract_facets_info, num_facets_states, max_width, interlocking_depth, interlocking_beam,
+                                    IncludeTopAndBottomLayers::Yes, true, throw_on_cancel_callback);
 }
 
 // Returns fuzzy skin segmentation based on painting in fuzzy skin segmentation gizmo
@@ -2241,15 +2249,16 @@ std::vector<std::vector<ExPolygons>> fuzzy_skin_segmentation_by_painting(const P
         return {mv.fuzzy_skin_facets, mv.is_fuzzy_skin_painted(), false};
     };
 
-    // Because we apply fuzzy skin just on external perimeters, we limit the depth of fuzzy skin
-    // by the maximal extrusion width of external perimeters.
+    // Limit side-wall paint depth to the external perimeter width. Horizontal
+    // painted facets are projected separately into the top and bottom surfaces.
     float max_external_perimeter_width = 0.;
     for (size_t region_idx = 0; region_idx < print_object.num_printing_regions(); ++region_idx) {
         const PrintRegion &region = print_object.printing_region(region_idx);
         max_external_perimeter_width = std::max<float>(max_external_perimeter_width, region.flow(print_object, frExternalPerimeter, print_object.config().layer_height).width());
     }
 
-    return segmentation_by_painting(print_object, extract_facets_info, num_facets_states, max_external_perimeter_width, 0.f, false, IncludeTopAndBottomLayers::No, throw_on_cancel_callback);
+    return segmentation_by_painting(print_object, extract_facets_info, num_facets_states, max_external_perimeter_width, 0.f, false,
+                                    IncludeTopAndBottomLayers::Yes, false, throw_on_cancel_callback);
 }
 
 std::vector<std::vector<ExPolygons>> thermal_pattern_segmentation_by_painting(
@@ -2270,7 +2279,7 @@ std::vector<std::vector<ExPolygons>> thermal_pattern_segmentation_by_painting(
     }
 
     return segmentation_by_painting(print_object, extract_facets_info, num_facets_states, max_surface_width, 0.f, false,
-                                    IncludeTopAndBottomLayers::Yes, throw_on_cancel_callback);
+                                    IncludeTopAndBottomLayers::Yes, false, throw_on_cancel_callback);
 }
 
 std::vector<std::vector<ExPolygons>> ironing_segmentation_by_painting(
@@ -2286,8 +2295,8 @@ std::vector<std::vector<ExPolygons>> ironing_segmentation_by_painting(
         maximum_width = std::max<float>(maximum_width,
             region.flow(print_object, frExternalPerimeter, print_object.config().layer_height).width());
     }
-    return segmentation_by_painting(print_object, extract_facets_info, 2, maximum_width, 0.f, false,
-                                    IncludeTopAndBottomLayers::Yes, throw_on_cancel_callback);
+    return segmentation_by_painting(print_object, extract_facets_info, 2, maximum_width, 0.f, false, IncludeTopAndBottomLayers::Yes, false,
+                                    throw_on_cancel_callback);
 }
 
 } // namespace Slic3r

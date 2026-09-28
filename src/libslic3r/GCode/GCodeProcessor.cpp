@@ -3477,6 +3477,18 @@ void GCodeProcessor::process_G29(const GCodeReader::GCodeLine& line)
 
 void GCodeProcessor::process_G10(const GCodeReader::GCodeLine& line)
 {
+    // RepRapFirmware overloads G10 for tool temperatures and offsets. These
+    // commands must not generate a phantom firmware retraction in preview.
+    if (m_flavor == gcfRepRapFirmware && (line.has('P') || line.has('S') || line.has('R'))) {
+        float new_temp;
+        if (line.has_value('S', new_temp)) {
+            float tool = static_cast<float>(m_extruder_id);
+            line.has_value('P', tool);
+            if (tool >= 0.0f && tool < static_cast<float>(m_extruder_temps.size()) && std::floor(tool) == tool)
+                m_extruder_temps[static_cast<size_t>(tool)] = new_temp;
+        }
+        return;
+    }
     GCodeReader::GCodeLine g10;
     g10.set(Axis::E, -get_value_at(this->m_parser.config(), this->m_parser.config().retraction_length, ConfigFlowDomain::Filament, m_extruder_id));
     g10.set(Axis::F,  get_value_at(this->m_parser.config(), this->m_parser.config().retraction_speed, ConfigFlowDomain::Filament, m_extruder_id) * 60);
@@ -3605,8 +3617,12 @@ void GCodeProcessor::process_M83(const GCodeReader::GCodeLine& line)
 void GCodeProcessor::process_M104(const GCodeReader::GCodeLine& line)
 {
     float new_temp;
-    if (line.has_value('S', new_temp))
-        m_extruder_temps[m_extruder_id] = new_temp;
+    if (line.has_value('S', new_temp)) {
+        float tool = static_cast<float>(m_extruder_id);
+        line.has_value('T', tool);
+        if (tool >= 0.0f && tool < static_cast<float>(m_extruder_temps.size()) && std::floor(tool) == tool)
+            m_extruder_temps[static_cast<size_t>(tool)] = new_temp;
+    }
 }
 
 void GCodeProcessor::process_M106(const GCodeReader::GCodeLine& line)
@@ -3645,18 +3661,12 @@ void GCodeProcessor::process_M108(const GCodeReader::GCodeLine& line)
 void GCodeProcessor::process_M109(const GCodeReader::GCodeLine& line)
 {
     float new_temp;
-    if (line.has_value('R', new_temp)) {
-        float val;
-        if (line.has_value('T', val)) {
-            size_t eid = static_cast<size_t>(val);
-            if (eid < m_extruder_temps.size())
-                m_extruder_temps[eid] = new_temp;
-        }
-        else
-            m_extruder_temps[m_extruder_id] = new_temp;
+    if (line.has_value('R', new_temp) || line.has_value('S', new_temp)) {
+        float tool = static_cast<float>(m_extruder_id);
+        line.has_value('T', tool);
+        if (tool >= 0.0f && tool < static_cast<float>(m_extruder_temps.size()) && std::floor(tool) == tool)
+            m_extruder_temps[static_cast<size_t>(tool)] = new_temp;
     }
-    else if (line.has_value('S', new_temp))
-        m_extruder_temps[m_extruder_id] = new_temp;
 }
 
 void GCodeProcessor::process_M132(const GCodeReader::GCodeLine& line)

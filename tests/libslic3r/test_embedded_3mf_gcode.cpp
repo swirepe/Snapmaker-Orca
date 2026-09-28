@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "libslic3r/GCode/Embedded3MF.hpp"
+#include "libslic3r/GCode/GCodeProcessor.hpp"
 
 #include <boost/filesystem/operations.hpp>
 #include <boost/nowide/fstream.hpp>
@@ -297,4 +298,54 @@ TEST_CASE("Unsupported versions and duplicate payloads are reported", "[Embedded
         REQUIRE(result.status == ExtractStatus::Corrupt);
         REQUIRE(result.error.find("Multiple embedded project markers") != std::string::npos);
     }
+}
+
+TEST_CASE("Embedding preserves footer metadata and executable toolpaths", "[Embedded3MF]")
+{
+    TempFiles         files;
+    const std::string commands = "G90\nM83\nG1 X0 Y0 Z0.2 F1200\nG1 X20 E1\nG1 Y20 E1\nM104 S0\n";
+    const std::string footer   = "; estimated printing time (normal mode) = 2s\n; filament used [mm] = 2\n";
+    files.write(files.gcode, commands + footer);
+    files.write(files.project, std::string(200000, 'x'));
+    std::string error;
+    REQUIRE(append(files.gcode.string(), files.project.string(), error));
+    const std::string combined = files.read(files.gcode);
+    REQUIRE(combined.compare(0, commands.size() + footer.size(), commands + footer) == 0);
+    REQUIRE(combined.substr(combined.size() - footer.size()) == footer);
+    REQUIRE(extract(files.gcode.string(), files.extracted.string()).status == ExtractStatus::Valid);
+
+    Slic3r::GCodeProcessor before;
+    Slic3r::GCodeProcessor after;
+    before.apply_config(Slic3r::PrintConfig());
+    after.apply_config(Slic3r::PrintConfig());
+    before.initialize(files.gcode.string());
+    after.initialize(files.gcode.string());
+    before.process_buffer(commands + footer);
+    after.process_buffer(combined);
+    before.finalize(false);
+    after.finalize(false);
+    const auto& expected = before.get_result();
+    const auto& actual   = after.get_result();
+    REQUIRE(expected.moves.size() > 1);
+    REQUIRE(actual.moves.size() == expected.moves.size());
+    for (std::size_t i = 0; i < expected.moves.size(); ++i) {
+        REQUIRE(actual.moves[i].position == expected.moves[i].position);
+        REQUIRE(actual.moves[i].type == expected.moves[i].type);
+    }
+    REQUIRE(expected.print_statistics.modes[0].time > 0);
+    REQUIRE(actual.print_statistics.modes[0].time == expected.print_statistics.modes[0].time);
+}
+
+TEST_CASE("Embedding twice is rejected without corrupting the existing project", "[Embedded3MF]")
+{
+    TempFiles files;
+    files.write(files.gcode, "G28\n");
+    files.write(files.project, "project bytes");
+    std::string error;
+    REQUIRE(append(files.gcode.string(), files.project.string(), error));
+    const std::string first = files.read(files.gcode);
+    REQUIRE_FALSE(append(files.gcode.string(), files.project.string(), error));
+    REQUIRE(error.find("already contains") != std::string::npos);
+    REQUIRE(files.read(files.gcode) == first);
+    REQUIRE(extract(files.gcode.string(), files.extracted.string()).status == ExtractStatus::Valid);
 }

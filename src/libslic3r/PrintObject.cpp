@@ -1130,15 +1130,14 @@ bool PrintObject::invalidate_state_by_config_options(
             || opt_key == "lateral_lattice_angle_2"
             || opt_key == "infill_overhang_angle") {
             steps.emplace_back(posInfill);
-        } else if (opt_key == "sparse_infill_pattern"
-                   || opt_key == "symmetric_infill_y_axis"
-                   || opt_key == "infill_shift_step"
-                   || opt_key == "sparse_infill_rotate_template"
-                   || opt_key == "solid_infill_rotate_template"
-                   || opt_key == "skeleton_infill_density"
-                   || opt_key == "skin_infill_density"
-                   || opt_key == "infill_lock_depth"
-                   || opt_key == "skin_infill_depth") {
+        } else if (opt_key == "fuzzy_skin_top_surface" || opt_key == "fuzzy_skin_ironing") {
+            // Ironing paths carry whether they follow an exposed fuzzy top.
+            // Rebuild fills to discard the previous ironing paths and flags.
+            steps.emplace_back(posInfill);
+        } else if (opt_key == "sparse_infill_pattern" || opt_key == "symmetric_infill_y_axis" || opt_key == "infill_shift_step" ||
+                   opt_key == "sparse_infill_rotate_template" || opt_key == "solid_infill_rotate_template" ||
+                   opt_key == "skeleton_infill_density" || opt_key == "skin_infill_density" || opt_key == "infill_lock_depth" ||
+                   opt_key == "skin_infill_depth") {
             steps.emplace_back(posPrepareInfill);
         } else if (opt_key == "sparse_infill_density") {
             // One likely wants to reslice only when switching between zero infill to simulate boolean difference (subtracting volumes),
@@ -1155,26 +1154,13 @@ bool PrintObject::invalidate_state_by_config_options(
             // This value is used for calculating perimeter - infill overlap, thus perimeters need to be recalculated.
             steps.emplace_back(posPerimeters);
             steps.emplace_back(posPrepareInfill);
-        } else if (
-               opt_key == "outer_wall_line_width"
-            || opt_key == "wall_filament"
-            || opt_key == "fuzzy_skin"
-            || opt_key == "fuzzy_skin_thickness"
-            || opt_key == "fuzzy_skin_point_distance"
-            || opt_key == "fuzzy_skin_first_layer"
-            || opt_key == "fuzzy_skin_mode"
-            || opt_key == "fuzzy_skin_noise_type"
-            || opt_key == "fuzzy_skin_scale"
-            || opt_key == "fuzzy_skin_octaves"
-            || opt_key == "fuzzy_skin_persistence"
-            || opt_key == "detect_overhang_wall"
-            || opt_key == "overhang_reverse"
-            || opt_key == "overhang_reverse_internal_only"
-            || opt_key == "overhang_reverse_threshold"
-            || opt_key == "wall_direction"
-            || opt_key == "enable_overhang_speed"
-            || opt_key == "detect_thin_wall"
-            || opt_key == "precise_outer_wall") {
+        } else if (opt_key == "outer_wall_line_width" || opt_key == "wall_filament" || opt_key == "fuzzy_skin" ||
+                   opt_key == "fuzzy_skin_thickness" || opt_key == "fuzzy_skin_point_distance" || opt_key == "fuzzy_skin_first_layer" ||
+                   opt_key == "fuzzy_skin_mode" || opt_key == "fuzzy_skin_noise_type" || opt_key == "fuzzy_skin_scale" ||
+                   opt_key == "fuzzy_skin_octaves" || opt_key == "fuzzy_skin_persistence" || opt_key == "detect_overhang_wall" ||
+                   opt_key == "overhang_reverse" || opt_key == "overhang_reverse_internal_only" ||
+                   opt_key == "overhang_reverse_threshold" || opt_key == "wall_direction" || opt_key == "enable_overhang_speed" ||
+                   opt_key == "detect_thin_wall" || opt_key == "precise_outer_wall") {
             steps.emplace_back(posPerimeters);
             steps.emplace_back(posSupportMaterial);
         } else if (opt_key == "bridge_flow" || opt_key == "internal_bridge_flow") {
@@ -1185,63 +1171,27 @@ bool PrintObject::invalidate_state_by_config_options(
             	steps.emplace_back(posInfill);
 	            steps.emplace_back(posSupportMaterial);
 	        }
-        } else if (
-                opt_key == "wall_generator"
-            || opt_key == "wall_transition_length"
-            || opt_key == "wall_transition_filter_deviation"
-            || opt_key == "wall_transition_angle"
-            || opt_key == "wall_distribution_count"
-            || opt_key == "min_feature_size"
-            || opt_key == "min_length_factor"
-            || opt_key == "min_bead_width") {
+        } else if (opt_key == "wall_generator" || opt_key == "wall_transition_length" || opt_key == "wall_transition_filter_deviation" ||
+                   opt_key == "wall_transition_angle" || opt_key == "wall_distribution_count" || opt_key == "min_feature_size" ||
+                   opt_key == "min_length_factor" || opt_key == "min_bead_width") {
             steps.emplace_back(posSlice);
-        } else if (
-               opt_key == "seam_position"
-            || opt_key == "seam_slope_type"
-            || opt_key == "seam_slope_conditional"
-            || opt_key == "scarf_angle_threshold"
-            || opt_key == "scarf_overhang_threshold"
-            || opt_key == "scarf_joint_speed"
-            || opt_key == "scarf_joint_flow_ratio"
-            || opt_key == "seam_slope_start_height"
-            || opt_key == "seam_slope_entire_loop"
-            || opt_key == "seam_slope_min_length"
-            || opt_key == "seam_slope_steps"
-            || opt_key == "seam_slope_inner_walls"
-            || opt_key == "support_speed"
-            || opt_key == "support_interface_speed"
-            || opt_key == "overhang_1_4_speed"
-            || opt_key == "overhang_2_4_speed"
-            || opt_key == "overhang_3_4_speed"
-            || opt_key == "overhang_4_4_speed"
-            || opt_key == "bridge_speed"
-            || opt_key == "internal_bridge_speed"
-            || opt_key == "outer_wall_speed"
-            || opt_key == "small_perimeter_speed"
-            || opt_key == "small_perimeter_threshold"
-            || opt_key == "sparse_infill_speed"
-            || opt_key == "inner_wall_speed"
-            || opt_key == "internal_solid_infill_speed"
-            || opt_key == "top_surface_speed"
-            || opt_key == "fuzzy_skin_top_surface"
-            || opt_key == "fuzzy_skin_lower_surface"
-            || opt_key == "fuzzy_skin_top_surface_first_layer"
-            || opt_key == "fuzzy_skin_bed_surface"
-            || opt_key == "fuzzy_skin_connect_walls"
-            || opt_key == "fuzzy_skin_compensate_extrusion"
-            || opt_key == "fuzzy_skin_bridge_compensation_multiplier"
-            || opt_key == "fuzzy_skin_min_support_distance"
-            || opt_key == "fuzzy_skin_ironing"
-            || opt_key == "bed_mesh_min"
-            || opt_key == "bed_mesh_max"
-            || opt_key == "adaptive_bed_mesh_margin"
-            || opt_key == "bed_mesh_probe_distance") {
+        } else if (opt_key == "seam_position" || opt_key == "seam_slope_type" || opt_key == "seam_slope_conditional" ||
+                   opt_key == "scarf_angle_threshold" || opt_key == "scarf_overhang_threshold" || opt_key == "scarf_joint_speed" ||
+                   opt_key == "scarf_joint_flow_ratio" || opt_key == "seam_slope_start_height" || opt_key == "seam_slope_entire_loop" ||
+                   opt_key == "seam_slope_min_length" || opt_key == "seam_slope_steps" || opt_key == "seam_slope_inner_walls" ||
+                   opt_key == "support_speed" || opt_key == "support_interface_speed" || opt_key == "overhang_1_4_speed" ||
+                   opt_key == "overhang_2_4_speed" || opt_key == "overhang_3_4_speed" || opt_key == "overhang_4_4_speed" ||
+                   opt_key == "bridge_speed" || opt_key == "internal_bridge_speed" || opt_key == "outer_wall_speed" ||
+                   opt_key == "small_perimeter_speed" || opt_key == "small_perimeter_threshold" || opt_key == "sparse_infill_speed" ||
+                   opt_key == "inner_wall_speed" || opt_key == "internal_solid_infill_speed" || opt_key == "top_surface_speed" ||
+                   opt_key == "fuzzy_skin_lower_surface" || opt_key == "fuzzy_skin_top_surface_first_layer" ||
+                   opt_key == "fuzzy_skin_bed_surface" || opt_key == "fuzzy_skin_connect_walls" ||
+                   opt_key == "fuzzy_skin_compensate_extrusion" || opt_key == "fuzzy_skin_bridge_compensation_multiplier" ||
+                   opt_key == "fuzzy_skin_min_support_distance" || opt_key == "bed_mesh_min" || opt_key == "bed_mesh_max" ||
+                   opt_key == "adaptive_bed_mesh_margin" || opt_key == "bed_mesh_probe_distance") {
             invalidated |= m_print->invalidate_step(psGCodeExport);
-        } else if (
-               opt_key == "flush_into_infill"
-            || opt_key == "flush_into_objects"
-            || opt_key == "flush_into_support"
-            || opt_key == "dithering_local_z_infill") {
+        } else if (opt_key == "flush_into_infill" || opt_key == "flush_into_objects" || opt_key == "flush_into_support" ||
+                   opt_key == "dithering_local_z_infill") {
             invalidated |= m_print->invalidate_step(psWipeTower);
             invalidated |= m_print->invalidate_step(psGCodeExport);
         } else if (boost::starts_with(opt_key, "thermal_pattern_")) {

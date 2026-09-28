@@ -62,6 +62,22 @@ TEST_CASE("Pane calibration defaults select four factors", "[PaneCalibration]")
     }
 }
 
+TEST_CASE("Transparent pane defaults respect small nozzles", "[PaneCalibration]")
+{
+    PaneCalibrationConfig config = default_pane_calibration_config(PaneCalibrationTool::ClearFilament, 0.2);
+    const auto layer_height = std::find_if(config.factors.begin(), config.factors.end(), [](const PaneCalibrationFactorSetting& factor) {
+        return factor.factor == PaneCalibrationFactor::LayerHeight;
+    });
+    REQUIRE(layer_height != config.factors.end());
+    REQUIRE(layer_height->minimum == 0.1);
+    REQUIRE(layer_height->maximum == 0.2);
+    REQUIRE_NOTHROW(validate_pane_calibration_machine_limits(config, 0.2));
+
+    layer_height->maximum = 0.21;
+    REQUIRE_THROWS_AS(validate_pane_calibration_machine_limits(config, 0.2), std::invalid_argument);
+    REQUIRE_THROWS_AS(validate_pane_calibration_machine_limits(config, 0.), std::invalid_argument);
+}
+
 TEST_CASE("Supported Taguchi arrays are pairwise balanced", "[PaneCalibration]")
 {
     const std::array<std::pair<unsigned, size_t>, 7> cases {{{2, 3}, {2, 7}, {2, 15}, {3, 4}, {3, 7}, {3, 13}, {4, 5}}};
@@ -174,7 +190,7 @@ TEST_CASE("Pane calibration creates body ears and editable label meshes", "[Pane
     REQUIRE(std::abs(label.bounding_box().max.z() - 0.5) < 1e-6);
 }
 
-TEST_CASE("Regional process overrides have safe defaults and survive project storage", "[PaneCalibration][3mf]")
+TEST_CASE("Pane process controls and label scheduling survive project storage", "[PaneCalibration][3mf]")
 {
     const std::vector<std::string> override_keys {
         "nozzle_temperature_override",
@@ -197,6 +213,7 @@ TEST_CASE("Regional process overrides have safe defaults and survive project sto
 
     Model        source;
     ModelObject *object = source.add_object();
+    object->config.set_key_value("layer_height", new ConfigOptionFloat(0.24));
     ModelVolume *volume = object->add_volume(make_cube(20., 20., 2.));
     volume->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::EveryOtherLayer));
     volume->config.set_key_value("ironing_pattern", new ConfigOptionEnum<InfillPattern>(InfillPattern::ipConcentric));
@@ -210,7 +227,31 @@ TEST_CASE("Regional process overrides have safe defaults and survive project sto
     volume->config.set_key_value("wall_fan_speed_override", new ConfigOptionInt(40));
     volume->config.set_key_value("ironing_fan_speed_override", new ConfigOptionInt(25));
     volume->config.set_key_value("auxiliary_fan_speed_override", new ConfigOptionInt(35));
+    volume->config.set_key_value("outer_wall_speed", new ConfigOptionFloats{31.});
+    volume->config.set_key_value("inner_wall_speed", new ConfigOptionFloats{42.});
+    volume->config.set_key_value("internal_solid_infill_speed", new ConfigOptionFloats{53.});
+    volume->config.set_key_value("top_surface_speed", new ConfigOptionFloats{64.});
+    volume->config.set_key_value("print_flow_ratio", new ConfigOptionFloat(1.07));
+    volume->config.set_key_value("outer_wall_line_width", new ConfigOptionFloatOrPercent(0.41, false));
+    volume->config.set_key_value("inner_wall_line_width", new ConfigOptionFloatOrPercent(0.42, false));
+    volume->config.set_key_value("internal_solid_infill_line_width", new ConfigOptionFloatOrPercent(0.43, false));
+    volume->config.set_key_value("top_surface_line_width", new ConfigOptionFloatOrPercent(0.44, false));
+    volume->config.set_key_value("extruder", new ConfigOptionInt(1));
+
+    ModelVolume* label = object->add_volume(make_cube(10., 10., 0.5), ModelVolumeType::MODEL_PART, false);
+    label->set_offset(Vec3d(0., 0., 2.));
+    label->config.set_key_value("extruder", new ConfigOptionInt(2));
+    label->config.set_key_value("pane_calibration_label", new ConfigOptionBool(true));
     object->add_instance();
+
+    const PaneCalibrationLabelSchedule source_schedule = pane_calibration_label_schedule(*object, Transform3d::Identity());
+    REQUIRE(source_schedule.status == PaneCalibrationLabelScheduleStatus::Ready);
+    REQUIRE(source_schedule.label_start_z == 2.);
+    REQUIRE(source_schedule.label_extruder == 1);
+
+    label->set_offset(Vec3d(0., 0., 1.9));
+    REQUIRE(pane_calibration_label_schedule(*object, Transform3d::Identity()).status == PaneCalibrationLabelScheduleStatus::GeometryOverlap);
+    label->set_offset(Vec3d(0., 0., 2.));
 
     const boost::filesystem::path path = boost::filesystem::temp_directory_path() /
                                          boost::filesystem::unique_path("pane-region-config-%%%%-%%%%.3mf");
@@ -223,7 +264,8 @@ TEST_CASE("Regional process overrides have safe defaults and survive project sto
     boost::filesystem::remove(path);
 
     REQUIRE(restored.objects.size() == 1);
-    REQUIRE(restored.objects.front()->volumes.size() == 1);
+    REQUIRE(restored.objects.front()->volumes.size() == 2);
+    REQUIRE(restored.objects.front()->config.opt_float("layer_height") == 0.24);
     const ModelConfig &restored_config = restored.objects.front()->volumes.front()->config;
     REQUIRE(restored_config.get().opt_enum<IroningType>("ironing_type") == IroningType::EveryOtherLayer);
     REQUIRE(restored_config.get().opt_enum<InfillPattern>("ironing_pattern") == InfillPattern::ipConcentric);
@@ -237,4 +279,55 @@ TEST_CASE("Regional process overrides have safe defaults and survive project sto
     REQUIRE(restored_config.opt_int("wall_fan_speed_override") == 40);
     REQUIRE(restored_config.opt_int("ironing_fan_speed_override") == 25);
     REQUIRE(restored_config.opt_int("auxiliary_fan_speed_override") == 35);
+    REQUIRE(restored_config.get().opt_float("outer_wall_speed", 0) == 31.);
+    REQUIRE(restored_config.get().opt_float("inner_wall_speed", 0) == 42.);
+    REQUIRE(restored_config.get().opt_float("internal_solid_infill_speed", 0) == 53.);
+    REQUIRE(restored_config.get().opt_float("top_surface_speed", 0) == 64.);
+    REQUIRE(restored_config.opt_float("print_flow_ratio") == 1.07);
+    REQUIRE(restored_config.opt_float("outer_wall_line_width") == 0.41);
+    REQUIRE(restored_config.opt_float("inner_wall_line_width") == 0.42);
+    REQUIRE(restored_config.opt_float("internal_solid_infill_line_width") == 0.43);
+    REQUIRE(restored_config.opt_float("top_surface_line_width") == 0.44);
+
+    const ModelVolume*      restored_label = restored.objects.front()->volumes.back();
+    const ConfigOptionBool* label_marker   = restored_label->config.get().option<ConfigOptionBool>("pane_calibration_label");
+    REQUIRE(label_marker != nullptr);
+    REQUIRE(label_marker->value);
+    const PaneCalibrationLabelSchedule restored_schedule = pane_calibration_label_schedule(*restored.objects.front(),
+                                                                                           Transform3d::Identity());
+    REQUIRE(restored_schedule.status == PaneCalibrationLabelScheduleStatus::Ready);
+    REQUIRE(restored_schedule.label_start_z == 2.);
+    REQUIRE(restored_schedule.label_extruder == 1);
+}
+
+TEST_CASE("Pane label phases follow transforms and reject conflicting label tools", "[PaneCalibration]")
+{
+    Model        model;
+    ModelObject* object = model.add_object();
+    object->config.set_key_value("extruder", new ConfigOptionInt(1));
+    object->add_volume(make_cube(20., 20., 2.));
+    ModelVolume* label = object->add_volume(make_cube(10., 10., 0.5), ModelVolumeType::MODEL_PART, false);
+    label->set_offset(Vec3d(0., 0., 2.));
+    label->config.set_key_value("pane_calibration_label", new ConfigOptionBool(true));
+    label->config.set_key_value("extruder", new ConfigOptionInt(2));
+
+    Transform3d transform = Transform3d::Identity();
+    transform.scale(Vec3d(1., 1., 2.));
+    const auto scaled = pane_calibration_label_schedule(*object, transform);
+    REQUIRE(scaled.status == PaneCalibrationLabelScheduleStatus::Ready);
+    REQUIRE(scaled.label_start_z == 4.);
+
+    SECTION("a shared inherited extruder needs no second phase")
+    {
+        label->config.set_key_value("extruder", new ConfigOptionInt(0));
+        REQUIRE(pane_calibration_label_schedule(*object, transform).status == PaneCalibrationLabelScheduleStatus::None);
+    }
+    SECTION("labels with different tools cannot share a label phase")
+    {
+        ModelVolume* other_label = object->add_volume(make_cube(2., 2., 0.5), ModelVolumeType::MODEL_PART, false);
+        other_label->set_offset(Vec3d(0., 0., 2.));
+        other_label->config.set_key_value("pane_calibration_label", new ConfigOptionBool(true));
+        other_label->config.set_key_value("extruder", new ConfigOptionInt(3));
+        REQUIRE(pane_calibration_label_schedule(*object, transform).status == PaneCalibrationLabelScheduleStatus::MultipleLabelExtruders);
+    }
 }

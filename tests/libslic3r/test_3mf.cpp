@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "libslic3r/Model.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include "libslic3r/Preset.hpp"
 #include "libslic3r/Format/3mf.hpp"
 #include "libslic3r/Format/bbs_3mf.hpp"
@@ -109,6 +110,83 @@ TEST_CASE("Thermal surface paint survives a 3MF round trip", "[3mf][thermal_patt
     const FacetsAnnotation &loaded_paint = loaded.objects.front()->volumes.front()->thermal_pattern_facets;
     REQUIRE_FALSE(loaded_paint.empty());
     REQUIRE(loaded_paint.get_triangle_as_string(0) == "1");
+}
+
+TEST_CASE("Thermal object settings survive a standard 3MF round trip", "[3mf][thermal_pattern]")
+{
+    const std::vector<std::string> keys {"thermal_pattern_mode",
+                                         "thermal_pattern_preset",
+                                         "thermal_pattern_seed",
+                                         "thermal_pattern_outer_walls",
+                                         "thermal_pattern_top_surfaces",
+                                         "thermal_pattern_max_level",
+                                         "thermal_pattern_top_max_level",
+                                         "thermal_pattern_band_median",
+                                         "thermal_pattern_band_sigma",
+                                         "thermal_pattern_band_min",
+                                         "thermal_pattern_band_max",
+                                         "thermal_pattern_dark_band_narrowing",
+                                         "thermal_pattern_stay_weight",
+                                         "thermal_pattern_adjacent_weight",
+                                         "thermal_pattern_two_away_weight",
+                                         "thermal_pattern_far_weight",
+                                         "thermal_pattern_darkness_bias",
+                                         "thermal_pattern_trend_persistence",
+                                         "thermal_pattern_trend_strength",
+                                         "thermal_pattern_accent_chance",
+                                         "thermal_pattern_accent_boost",
+                                         "thermal_pattern_accent_min",
+                                         "thermal_pattern_accent_max",
+                                         "thermal_pattern_top_group_min_time",
+                                         "thermal_pattern_top_group_max_lines",
+                                         "thermal_pattern_heat_tau",
+                                         "thermal_pattern_cool_tau",
+                                         "thermal_pattern_tolerance",
+                                         "thermal_pattern_surface_heat_credit",
+                                         "thermal_pattern_min_base_dwell",
+                                         "thermal_pattern_max_preheat",
+                                         "thermal_pattern_protect_risky_features",
+                                         "thermal_pattern_internal_policy",
+                                         "thermal_pattern_speed_assist",
+                                         "thermal_pattern_speed_max_factor",
+                                         "thermal_pattern_speed_min"};
+
+    Model source;
+    const std::string source_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
+    load_stl(source_file.c_str(), &source);
+    source.add_default_instances();
+    DynamicPrintConfig defaults = DynamicPrintConfig::full_print_config();
+    ModelConfig& object_config = source.objects.front()->config;
+    ModelConfig& volume_config = source.objects.front()->volumes.front()->config;
+    for (const std::string& key : keys) {
+        CAPTURE(key);
+        const ConfigOption* option = defaults.option(key);
+        REQUIRE(option != nullptr);
+        object_config.set_key_value(key, option->clone());
+        volume_config.set_key_value(key, option->clone());
+    }
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("thermal-settings-%%%%-%%%%.3mf");
+    REQUIRE(store_3mf(output.string().c_str(), &source, nullptr, false));
+
+    Model loaded;
+    DynamicPrintConfig loaded_config;
+    ConfigSubstitutionContext context {ForwardCompatibilitySubstitutionRule::Disable};
+    REQUIRE(load_3mf(output.string().c_str(), loaded_config, context, &loaded, false));
+    boost::filesystem::remove(output);
+
+    REQUIRE(loaded.objects.size() == 1);
+    REQUIRE(loaded.objects.front()->volumes.size() == 1);
+    const ModelConfig& loaded_object_config = loaded.objects.front()->config;
+    const ModelConfig& loaded_volume_config = loaded.objects.front()->volumes.front()->config;
+    for (const std::string& key : keys) {
+        INFO(key);
+        REQUIRE(loaded_object_config.has(key));
+        REQUIRE(loaded_object_config.opt_serialize(key) == object_config.opt_serialize(key));
+        REQUIRE(loaded_volume_config.has(key));
+        REQUIRE(loaded_volume_config.opt_serialize(key) == volume_config.opt_serialize(key));
+    }
 }
 
 TEST_CASE("Thermal surface paint survives a project 3MF round trip", "[3mf][thermal_pattern][bbs_3mf]")
@@ -230,3 +308,70 @@ SCENARIO("2D convex hull of sinking object", "[3mf]") {
         }
     }
 }
+
+TEST_CASE("Fuzzy modifier settings survive a standard 3MF round trip", "[3mf][FuzzySurface]")
+{
+    Model source;
+    const std::string source_file = std::string(TEST_DATA_DIR) + "/test_3mf/Prusa.stl";
+    load_stl(source_file.c_str(), &source);
+    source.add_default_instances();
+
+    ModelConfig &config = source.objects.front()->volumes.front()->config;
+    config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::AllWalls));
+    config.set_key_value("fuzzy_skin_thickness", new ConfigOptionFloat(0.47));
+    config.set_key_value("fuzzy_skin_point_distance", new ConfigOptionFloat(0.83));
+    config.set_key_value("fuzzy_skin_first_layer", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_noise_type", new ConfigOptionEnum<NoiseType>(NoiseType::Billow));
+    config.set_key_value("fuzzy_skin_mode", new ConfigOptionEnum<FuzzySkinMode>(FuzzySkinMode::Combined));
+    config.set_key_value("fuzzy_skin_scale", new ConfigOptionFloat(1.7));
+    config.set_key_value("fuzzy_skin_octaves", new ConfigOptionInt(6));
+    config.set_key_value("fuzzy_skin_persistence", new ConfigOptionFloat(0.73));
+    config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_top_surface_first_layer", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(true));
+    config.set_key_value("fuzzy_skin_connect_walls", new ConfigOptionBool(false));
+    config.set_key_value("fuzzy_skin_compensate_extrusion", new ConfigOptionBool(false));
+    config.set_key_value("fuzzy_skin_bridge_compensation_multiplier", new ConfigOptionFloat(2.4));
+    config.set_key_value("fuzzy_skin_min_support_distance", new ConfigOptionFloat(0.31));
+    config.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(true));
+
+    const std::vector<std::string> keys {"fuzzy_skin",
+                                         "fuzzy_skin_thickness",
+                                         "fuzzy_skin_point_distance",
+                                         "fuzzy_skin_first_layer",
+                                         "fuzzy_skin_noise_type",
+                                         "fuzzy_skin_mode",
+                                         "fuzzy_skin_scale",
+                                         "fuzzy_skin_octaves",
+                                         "fuzzy_skin_persistence",
+                                         "fuzzy_skin_top_surface",
+                                         "fuzzy_skin_lower_surface",
+                                         "fuzzy_skin_top_surface_first_layer",
+                                         "fuzzy_skin_bed_surface",
+                                         "fuzzy_skin_connect_walls",
+                                         "fuzzy_skin_compensate_extrusion",
+                                         "fuzzy_skin_bridge_compensation_multiplier",
+                                         "fuzzy_skin_min_support_distance",
+                                         "fuzzy_skin_ironing"};
+
+    const boost::filesystem::path output = boost::filesystem::temp_directory_path() /
+                                           boost::filesystem::unique_path("fuzzy-settings-%%%%-%%%%.3mf");
+    REQUIRE(store_3mf(output.string().c_str(), &source, nullptr, false));
+
+    Model loaded;
+    DynamicPrintConfig loaded_config;
+    ConfigSubstitutionContext context {ForwardCompatibilitySubstitutionRule::Disable};
+    REQUIRE(load_3mf(output.string().c_str(), loaded_config, context, &loaded, false));
+    boost::filesystem::remove(output);
+
+    REQUIRE(loaded.objects.size() == 1);
+    REQUIRE(loaded.objects.front()->volumes.size() == 1);
+    const ModelConfig &loaded_volume_config = loaded.objects.front()->volumes.front()->config;
+    for (const std::string &key : keys) {
+        INFO(key);
+        REQUIRE(loaded_volume_config.has(key));
+        REQUIRE(loaded_volume_config.opt_serialize(key) == config.opt_serialize(key));
+    }
+}
+

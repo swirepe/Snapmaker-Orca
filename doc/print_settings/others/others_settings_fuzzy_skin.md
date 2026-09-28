@@ -173,3 +173,56 @@ Every matrix and ironing card includes a circular parameter-modifier region on i
 ## Credits
 
 - **Generator Mode author:** [@pi-squared-studio](https://github.com/pi-squared-studio).
+
+## Four-treatment cube calibration
+
+Calibration → Fuzzy skin now offers a single four-treatment cube, a series, or a
+nine-cube L9 array. Each cube has four complete outer walls and four triangular
+quarters of its top: plain, fuzzy, ironed, and fuzzy + ironed. Physical wall labels
+show `F=0/1`, `I=0/1`, thickness `T`, and point distance `D`; labels themselves stay
+smooth. Ironed sections reuse the transparent calibration's all-solid-layer
+ironing process, with a small inset to reach the wall edge on every layer. This
+polishes the horizontal layer edges making up a wall; it does not drive the
+nozzle sideways against the finished vertical face.
+
+A single cube uses the two minimum values. A series uses all combinations in the
+entered thickness and distance ranges. The L9 array uses minimum, midpoint, and
+maximum for each factor, giving all nine balanced pairs of these two factors.
+Step inputs do not apply to the single cube or L9 modes. Cubes print by layer,
+with 100% infill so every internal layer is eligible for ironing. Buried ironing
+stays planar; only ironing on an exposed fuzzy top follows the height field.
+
+## Painting and fill patterns
+
+Fuzzy paint on a top face enables top-surface fuzz in the painted region.
+Ironing paint can overlap it to make the fuzzy + ironed treatment. Plain,
+fuzzy-only, ironing-only, and overlapping areas retain their separate settings.
+
+Horizontal fuzzy skin adds Z motion to the existing fill path, preserving its XY
+pattern. Selecting concentric top or bottom fill therefore gives concentric
+textured paths on eligible surfaces. This is intentional: the selected pattern
+still controls line direction, coverage, and continuity. It does not emboss an
+independent concentric height map. Ironing uses its own ironing-pattern setting;
+supported undersides use the bridge paths generated for those surfaces.
+
+## Bed and supported-surface bonding
+
+Bed-facing and supported-lower fuzzy paths now return to nominal layer height at
+regular distances, including their endpoints. Anchor spacing is four times the
+fuzzy point distance, clamped to 0.4–2 mm, measured along the path even around
+corners. On the bed these are normal first-layer squish/contact points. On a
+supported underside they provide regularly spaced bonding points for the next
+planar layer. These anchors remain enabled even if general boundary connection
+is disabled.
+
+Displacement on these surfaces is additionally capped to 25% of the current
+extrusion height and, when present, the next layer's height. Bed texture therefore
+stays below the next layer, including variable-height layers. Supported-lower
+texture stays shallow enough to limit the gap to the following planar layer.
+The existing minimum clearance from support remains enforced; the nozzle never
+intentionally drives into the support interface. This is an anchoring and bounded
+gap strategy, not a contour-following reconstruction of the next layer. Physical
+print validation is still needed to choose settings for a particular material,
+nozzle, and support interface.
+
+Enable **Raise card labels on smooth pedestals** to lift coupon labels above the fuzzy texture on a continuous, smooth pad. The pad clears the selected texture amplitude by 0.4 mm and inherits the label’s disabled fuzzy skin and ironing settings. This option applies to cards and panel headers; cube wall labels remain directly embossed.

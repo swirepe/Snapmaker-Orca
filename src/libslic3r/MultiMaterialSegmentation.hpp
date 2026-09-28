@@ -37,14 +37,16 @@ struct ModelVolumeFacetsInfo {
 };
 
 // Returns segmentation based on painting in segmentation gizmos.
-std::vector<std::vector<ExPolygons>> segmentation_by_painting(const PrintObject                                               &print_object,
-                                                              const std::function<ModelVolumeFacetsInfo(const ModelVolume &)> &extract_facets_info,
-                                                              size_t                                                           num_facets_states,
-                                                              float                                                            segmentation_max_width,
-                                                              float                                                            segmentation_interlocking_depth,
-                                                              bool                                                             segmentation_interlocking_beam,
-                                                              IncludeTopAndBottomLayers                                        include_top_and_bottom_layers,
-                                                              const std::function<void()>                                     &throw_on_cancel_callback);
+std::vector<std::vector<ExPolygons>> segmentation_by_painting(
+    const PrintObject&                                              print_object,
+    const std::function<ModelVolumeFacetsInfo(const ModelVolume&)>& extract_facets_info,
+    size_t                                                          num_facets_states,
+    float                                                           segmentation_max_width,
+    float                                                           segmentation_interlocking_depth,
+    bool                                                            segmentation_interlocking_beam,
+    IncludeTopAndBottomLayers                                       include_top_and_bottom_layers,
+    bool                                                            facets_are_materials,
+    const std::function<void()>&                                    throw_on_cancel_callback);
 
 // Returns multi-material segmentation based on painting in multi-material segmentation gizmo
 std::vector<std::vector<ExPolygons>> multi_material_segmentation_by_painting(const PrintObject &print_object, const std::function<void()> &throw_on_cancel_callback);

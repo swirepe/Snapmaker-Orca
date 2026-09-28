@@ -219,7 +219,10 @@ double calculate_infill_rotation_angle(const PrintObject* object,
 
 struct SurfaceFillParams
 {
-	// Zero based extruder ID.
+    // Horizontal texture is applied at G-code export using the owning region's
+    // config. Keep external fills with different regional settings separate.
+    size_t horizontal_fuzzy_region = 0;
+    // Zero based extruder ID.
     unsigned int 	extruder = 0;
 	// Infill pattern, adjusted for the density etc.
     InfillPattern  	pattern = InfillPattern(0);
@@ -283,6 +286,7 @@ struct SurfaceFillParams
 		if (this->bridge_angle > rhs.bridge_angle) return true;
 		if (this->bridge_angle < rhs.bridge_angle) return false;
 
+		RETURN_COMPARE_NON_EQUAL(horizontal_fuzzy_region);
 		RETURN_COMPARE_NON_EQUAL(extruder);
 		RETURN_COMPARE_NON_EQUAL_TYPED(unsigned, pattern);
 		RETURN_COMPARE_NON_EQUAL(spacing);
@@ -312,7 +316,8 @@ struct SurfaceFillParams
 	}
 
 	bool operator==(const SurfaceFillParams &rhs) const {
-		return  this->extruder 			== rhs.extruder 		&&
+		return this->horizontal_fuzzy_region == rhs.horizontal_fuzzy_region &&
+                this->extruder 			== rhs.extruder 		&&
 				this->pattern 			== rhs.pattern 			&&
 				this->spacing 			== rhs.spacing 			&&
 				this->overlap 			== rhs.overlap 			&&
@@ -837,7 +842,13 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
             it->second.push_back(exp);
     };
 
-	for (size_t region_id = 0; region_id < layer.regions().size(); ++ region_id) {
+    const bool preserve_fuzzy_regions = std::any_of(layer.regions().begin(), layer.regions().end(), [](const LayerRegion* region) {
+        const auto& config = region->region().config();
+        return config.fuzzy_skin.value != FuzzySkinType::None &&
+               (config.fuzzy_skin_top_surface.value || config.fuzzy_skin_lower_surface.value || config.fuzzy_skin_bed_surface.value);
+    });
+
+    for (size_t region_id = 0; region_id < layer.regions().size(); ++ region_id) {
 		const LayerRegion  &layerm = *layer.regions()[region_id];
 		region_to_surface_params[region_id].assign(layerm.fill_surfaces.size(), nullptr);
 	    for (const Surface &surface : layerm.fill_surfaces.surfaces)
@@ -845,7 +856,8 @@ std::vector<SurfaceFill> group_fills(const Layer &layer, LockRegionParam &lock_p
 	        	has_internal_voids = true;
 	        else {
 		        const PrintRegionConfig &region_config = layerm.region().config();
-		        FlowRole extrusion_role = surface.is_top() ? frTopSolidInfill : (surface.is_solid() ? frSolidInfill : frInfill);
+                params.horizontal_fuzzy_region         = preserve_fuzzy_regions && surface.is_external() ? region_id + 1 : 0;
+                FlowRole extrusion_role = surface.is_top() ? frTopSolidInfill : (surface.is_solid() ? frSolidInfill : frInfill);
 		        bool     is_bridge 	    = layer.id() > 0 && surface.is_bridge();
                 const unsigned int effective_extruder = layerm.extruder(extrusion_role);
 		        params.extruder 	 = effective_extruder;
@@ -1588,9 +1600,14 @@ void Layer::make_ironing()
 		}
 
 		size_t j = i;
-		for (++ j; j < by_extruder.size() && ironing_params == by_extruder[j]; ++ j) ;
+        // Preserve regional process settings, including fuzzy height fields, in the
+        // region that owns the generated ironing paths.
+        for (++j; j < by_extruder.size() && ironing_params == by_extruder[j] &&
+                  ironing_params.layerm->region().config() == by_extruder[j].layerm->region().config();
+             ++j)
+            ;
 
-		// Create the ironing extrusions for regions <i, j)
+        // Create the ironing extrusions for regions <i, j)
 		ExPolygons ironing_areas;
 		double nozzle_dmr = this->object()->print()->config().nozzle_diameter.get_at(ironing_params.extruder - 1);
 		if (ironing_params.just_infill) {
@@ -1661,9 +1678,28 @@ void Layer::make_ironing()
 		double  extrusion_height = ironing_params.height * f->spacing / nozzle_dmr;
 		float  extrusion_width  = Flow::rounded_rectangle_extrusion_width_from_spacing(float(nozzle_dmr), float(extrusion_height));
 		double flow_mm3_per_mm = nozzle_dmr * extrusion_height;
+        // Keep exposed top ironing separate from buried AllSolid/EveryOtherLayer
+        // passes so only the former follows the fuzzy top height field.
+        ExPolygons               top_ironing;
+        size_t                   top_area_count = 0;
+        const PrintRegionConfig& process_config = ironing_params.layerm->region().config();
+        if (process_config.fuzzy_skin != FuzzySkinType::None && process_config.fuzzy_skin_top_surface.value) {
+            Polygons exposed_tops;
+            for (size_t k = i; k < j; ++k)
+                for (const Surface& surface : by_extruder[k].layerm->slices.surfaces)
+                    if (surface.surface_type == stTop)
+                        polygons_append(exposed_tops, surface.expolygon);
+            top_ironing               = intersection_ex(ironing_areas, exposed_tops);
+            ExPolygons buried_ironing = diff_ex(ironing_areas, exposed_tops);
+            top_area_count            = top_ironing.size();
+            append(top_ironing, std::move(buried_ironing));
+        } else {
+            top_ironing = std::move(ironing_areas);
+        }
         Surface surface_fill(stTop, ExPolygon());
-        for (ExPolygon &expoly : ironing_areas) {
-			surface_fill.expolygon = std::move(expoly);
+        for (size_t area_index = 0; area_index < top_ironing.size(); ++area_index) {
+            ExPolygon& expoly      = top_ironing[area_index];
+            surface_fill.expolygon = std::move(expoly);
 			Polylines polylines;
 			try {
 				polylines = f->fill_surface(&surface_fill, fill_params);
@@ -1679,10 +1715,12 @@ void Layer::make_ironing()
 		            eec->entities, std::move(polylines),
 		            erIroning,
 		            flow_mm3_per_mm, extrusion_width, float(extrusion_height));
-		    }
-		}
+                for (ExtrusionEntity* entity : eec->entities)
+                    static_cast<ExtrusionPath*>(entity)->ironing_exposed_top = area_index < top_area_count;
+            }
+        }
 
-		// Regions up to j were processed.
+        // Regions up to j were processed.
 		i = j;
 	}
 }
