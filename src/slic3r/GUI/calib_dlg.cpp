@@ -1756,7 +1756,7 @@ Fuzzy_Skin_Calibration_Dlg::Fuzzy_Skin_Calibration_Dlg(wxWindow* parent, wxWindo
     m_distance_min   = make_number("0.20");
     m_distance_max   = make_number("2.00");
     m_distance_step  = make_number("0.60");
-    m_coupon_size    = make_number("20");
+    m_coupon_size    = make_number("25");
     add_control(_L("Thickness minimum (mm)"), m_thickness_min);
     add_control(_L("Thickness maximum (mm)"), m_thickness_max);
     add_control(_L("Thickness step (mm)"), m_thickness_step);

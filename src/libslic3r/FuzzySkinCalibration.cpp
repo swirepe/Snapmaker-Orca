@@ -110,7 +110,7 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
         thicknesses = fuzzy_skin_calibration_values(config.thickness);
         distances   = fuzzy_skin_calibration_values(config.distance);
     }
-    FuzzySkinCalibrationPlan  plan;
+    FuzzySkinCalibrationPlan plan;
     plan.shared_object = config.mode == FuzzySkinCalibrationMode::SupportedUnderside;
 
     if (config.mode == FuzzySkinCalibrationMode::IroningComparison) {
@@ -123,8 +123,7 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
                     const size_t row     = 2 * distance + ironing_index;
                     plan.cells.push_back({thicknesses[column], distances[distance], ironing, row, column,
                                           "T=" + fuzzy_skin_calibration_value_label(thicknesses[column]) + " D=" +
-                                              fuzzy_skin_calibration_value_label(distances[distance]) +
-                                              " I=" + (ironing ? "1" : "0")});
+                                              fuzzy_skin_calibration_value_label(distances[distance]) + " I=" + (ironing ? "1" : "0")});
                 }
     } else {
         plan.rows    = distances.size();
@@ -132,14 +131,46 @@ FuzzySkinCalibrationPlan build_fuzzy_skin_calibration_plan(const FuzzySkinCalibr
         for (size_t row = 0; row < plan.rows; ++row)
             for (size_t column = 0; column < plan.columns; ++column)
                 plan.cells.push_back({thicknesses[column], distances[row], false, row, column,
-                                      "T=" + fuzzy_skin_calibration_value_label(thicknesses[column]) + " D=" +
-                                          fuzzy_skin_calibration_value_label(distances[row])});
+                                      "T=" + fuzzy_skin_calibration_value_label(thicknesses[column]) +
+                                          " D=" + fuzzy_skin_calibration_value_label(distances[row])});
     }
 
     const size_t maximum_samples = config.mode == FuzzySkinCalibrationMode::IroningComparison ? 128 : 64;
     if (plan.cells.size() > maximum_samples)
         throw std::invalid_argument("Calibration plan is limited to 64 parameter combinations");
     return plan;
+}
+
+Vec2d FuzzySkinCalibrationGrid::cell_center(const FuzzySkinCalibrationCell& cell) const
+{
+    if (cell.row >= rows || cell.column >= columns)
+        throw std::invalid_argument("Calibration cell is outside the grid");
+    return Vec2d((double(cell.column) - 0.5 * double(columns - 1)) * pitch_x, (0.5 * double(rows - 1) - double(cell.row)) * pitch_y);
+}
+
+FuzzySkinCalibrationGrid build_fuzzy_skin_calibration_grid(const FuzzySkinCalibrationConfig& config, const FuzzySkinCalibrationPlan& plan)
+{
+    if (plan.rows == 0 || plan.columns == 0 || plan.cells.empty() || !std::isfinite(config.coupon_width) ||
+        !std::isfinite(config.coupon_depth) || !std::isfinite(config.gap) || config.coupon_width <= 0.0 || config.coupon_depth <= 0.0 ||
+        config.gap < 0.0)
+        throw std::invalid_argument("Calibration grid dimensions are invalid");
+    double maximum_thickness = 0.0;
+    for (const auto& cell : plan.cells) {
+        if (!std::isfinite(cell.thickness) || cell.thickness < 0.0 || cell.row >= plan.rows || cell.column >= plan.columns)
+            throw std::invalid_argument("Calibration grid cell is invalid");
+        maximum_thickness = std::max(maximum_thickness, cell.thickness);
+    }
+    const bool               cube         = is_fuzzy_skin_calibration_cube(config.mode);
+    const double             coupon_depth = cube ? config.coupon_width : config.coupon_depth;
+    FuzzySkinCalibrationGrid grid;
+    grid.rows           = plan.rows;
+    grid.columns        = plan.columns;
+    grid.edge_clearance = cube && config.labels ? fuzzy_skin_calibration_cube_overhang(maximum_thickness) : maximum_thickness;
+    grid.pitch_x        = config.coupon_width + config.gap + 2.0 * grid.edge_clearance;
+    grid.pitch_y        = coupon_depth + config.gap + 2.0 * grid.edge_clearance;
+    grid.width          = config.coupon_width + double(plan.columns - 1) * grid.pitch_x + 2.0 * grid.edge_clearance;
+    grid.depth          = coupon_depth + double(plan.rows - 1) * grid.pitch_y + 2.0 * grid.edge_clearance;
+    return grid;
 }
 
 FuzzySkinCalibrationBedPatch fuzzy_skin_calibration_bed_patch(const FuzzySkinCalibrationConfig& config)
@@ -170,6 +201,11 @@ double fuzzy_skin_calibration_bed_thickness(const FuzzySkinCalibrationConfig& co
 void apply_fuzzy_skin_calibration_print_config(DynamicPrintConfig& config)
 {
     config.set_key_value("print_sequence", new ConfigOptionEnum<PrintSequence>(PrintSequence::ByLayer));
+}
+
+double fuzzy_skin_calibration_cube_overhang(double thickness)
+{
+    return thickness + 0.8; // Smooth foundation + relief - overlap into the wall.
 }
 
 void populate_fuzzy_skin_calibration_cube(ModelObject&                      object,
@@ -210,23 +246,25 @@ void populate_fuzzy_skin_calibration_cube(ModelObject&                      obje
         target.set_key_value("ironing_inset", new ConfigOptionFloat(0.01));
 
         if (config.labels) {
-            const std::array<std::string, 3> lines{{"F=" + std::to_string(fuzzy) + " I=" + std::to_string(ironing),
-                                                    "T=" + fuzzy_skin_calibration_value_label(cell.thickness),
-                                                    "D=" + fuzzy_skin_calibration_value_label(cell.distance)}};
-            for (size_t line = 0; line < lines.size(); ++line) {
-                TriangleMesh label = make_fuzzy_skin_calibration_label(lines[line], std::min(1.6, double(height) / 10.0), 0.35);
-                label.rotate_x(float(0.5 * PI));
-                label.translate(0.f, -half + 0.05f, float(height * 0.5 + (1.0 - double(line)) * 2.5));
-                label.rotate_z(float(side * 0.5 * PI));
-                ModelVolume* label_volume = object.add_volume(std::move(label), ModelVolumeType::MODEL_PART, false);
-                label_volume->name        = "Wall label " + lines[line];
-                label_volume->config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
-                label_volume->config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(false));
-                label_volume->config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
-                label_volume->config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(false));
-                label_volume->config.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(false));
-                label_volume->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
-            }
+            const std::string text = "F=" + std::to_string(fuzzy) + " I=" + std::to_string(ironing) +
+                                     "\nT=" + fuzzy_skin_calibration_value_label(cell.thickness) +
+                                     "\nD=" + fuzzy_skin_calibration_value_label(cell.distance);
+            // A smooth foundation overlaps the cube and lifts the strokes clear
+            // of the neighboring wall texture. 0.6 mm relief survives slicing.
+            const double pad_height = (fuzzy ? cell.thickness : 0.0) + 0.35;
+            TriangleMesh label      = make_fuzzy_skin_calibration_fitted_label(text, height - 2.0, height - 2.0, 0.6, pad_height,
+                                                                               config.label_min_stroke);
+            label.rotate_x(float(0.5 * PI));
+            label.translate(0.f, -half + 0.15f, height * 0.5f);
+            label.rotate_z(float(side * 0.5 * PI));
+            ModelVolume* label_volume = object.add_volume(std::move(label), ModelVolumeType::MODEL_PART, false);
+            label_volume->name        = "Wall label " + text;
+            label_volume->config.set_key_value("fuzzy_skin", new ConfigOptionEnum<FuzzySkinType>(FuzzySkinType::None));
+            label_volume->config.set_key_value("fuzzy_skin_top_surface", new ConfigOptionBool(false));
+            label_volume->config.set_key_value("fuzzy_skin_lower_surface", new ConfigOptionBool(false));
+            label_volume->config.set_key_value("fuzzy_skin_bed_surface", new ConfigOptionBool(false));
+            label_volume->config.set_key_value("fuzzy_skin_ironing", new ConfigOptionBool(false));
+            label_volume->config.set_key_value("ironing_type", new ConfigOptionEnum<IroningType>(IroningType::NoIroning));
         }
     }
 }
@@ -269,11 +307,12 @@ TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double g
 {
     if (text.empty())
         return {};
-    if (glyph_height <= 0.0 || relief <= 0.0 || !std::isfinite(pedestal_height) || pedestal_height < 0.0)
+    if (!std::isfinite(glyph_height) || !std::isfinite(relief) || glyph_height <= 0.0 || relief <= 0.0 || !std::isfinite(pedestal_height) ||
+        pedestal_height < 0.0)
         throw std::invalid_argument("Calibration label dimensions must be positive");
 
     const double         cell       = glyph_height / 7.0;
-    const double         pixel      = 0.88 * cell;
+    const double         pixel      = 1.02 * cell; // Adjacent pixels overlap to make continuous printable strokes.
     const double         advance    = 6.0 * cell;
     const double         text_width = text.empty() ? 0.0 : (6.0 * double(text.size()) - 1.0) * cell;
     indexed_triangle_set mesh;
@@ -293,6 +332,62 @@ TriangleMesh make_fuzzy_skin_calibration_label(const std::string& text, double g
         // A continuous smooth pad keeps the glyphs above the texture peaks.
         indexed_triangle_set pedestal = its_make_cube(text_width + 0.8, glyph_height + 0.8, pedestal_height + 0.02);
         translate(pedestal, float(-0.5 * text_width - 0.4), float(-0.5 * glyph_height - 0.4), 0.f);
+        its_merge(mesh, pedestal);
+    }
+    return TriangleMesh(std::move(mesh));
+}
+
+TriangleMesh make_fuzzy_skin_calibration_fitted_label(
+    const std::string& text, double max_width, double max_height, double relief, double pedestal_height, double minimum_stroke)
+{
+    if (!std::isfinite(relief) || relief <= 0.0 || !std::isfinite(pedestal_height) || pedestal_height < 0.0)
+        throw std::invalid_argument("Calibration label relief and pedestal dimensions are invalid");
+    if (!std::isfinite(minimum_stroke) || minimum_stroke < 0.45)
+        throw std::invalid_argument("Calibration label strokes must be at least 0.45 mm");
+    if (!std::isfinite(max_width) || !std::isfinite(max_height) || max_width <= 0.0 || max_height <= 0.0)
+        throw std::invalid_argument("Calibration label box dimensions must be positive");
+    if (text.empty())
+        return {};
+    const double             cell         = minimum_stroke;
+    const double             glyph_height = 7.0 * cell;
+    const double             line_advance = 9.0 * cell;
+    const double             margin       = pedestal_height > 0.0 ? 0.4 : 0.0;
+    const auto               width = [cell](const std::string& line) { return (6.0 * double(line.size()) - 1.0) * cell + 0.02 * cell; };
+    std::vector<std::string> lines;
+    std::istringstream       paragraphs(text);
+    std::string              paragraph;
+    while (std::getline(paragraphs, paragraph)) {
+        std::istringstream words(paragraph);
+        std::string        word, line;
+        while (words >> word) {
+            if (width(word) + 2.0 * margin > max_width)
+                throw std::invalid_argument("Calibration labels need larger coupons; increase coupon size or disable labels");
+            const std::string candidate = line.empty() ? word : line + " " + word;
+            if (!line.empty() && width(candidate) + 2.0 * margin > max_width) {
+                lines.push_back(line);
+                line = word;
+            } else
+                line = candidate;
+        }
+        if (!line.empty())
+            lines.push_back(line);
+    }
+    if (lines.empty())
+        return {};
+    const double text_height = glyph_height + (lines.size() - 1) * line_advance;
+    if (text_height + 0.02 * cell + 2.0 * margin > max_height)
+        throw std::invalid_argument("Calibration labels need larger coupons; increase coupon size or disable labels");
+    indexed_triangle_set mesh;
+    double               text_width = 0.0;
+    for (size_t row = 0; row < lines.size(); ++row) {
+        TriangleMesh line = make_fuzzy_skin_calibration_label(lines[row], glyph_height, relief);
+        line.translate(0.f, float(0.5 * (text_height - glyph_height) - row * line_advance), float(pedestal_height));
+        its_merge(mesh, line.its);
+        text_width = std::max(text_width, width(lines[row]));
+    }
+    if (pedestal_height > 0.0) {
+        indexed_triangle_set pedestal = its_make_cube(text_width + 2.0 * margin, text_height + 2.0 * margin, pedestal_height + 0.02);
+        translate(pedestal, float(-0.5 * text_width - margin), float(-0.5 * text_height - margin), 0.f);
         its_merge(mesh, pedestal);
     }
     return TriangleMesh(std::move(mesh));

@@ -225,7 +225,7 @@ TEST_CASE("Every calibration card gets a bed-contacting circular patch", "[Fuzzy
     const auto regular = fuzzy_skin_calibration_bed_patch(config);
     REQUIRE(regular.center_x == Catch::Approx(0.0));
     REQUIRE(regular.center_y == Catch::Approx(0.0));
-    REQUIRE(regular.radius == Catch::Approx(5.0));
+    REQUIRE(regular.radius == Catch::Approx(6.25));
 
     config.mode = FuzzySkinCalibrationMode::SupportedUnderside;
     config.layout = FuzzySkinCalibrationLayout::BreakawayCoupons;
@@ -337,14 +337,14 @@ TEST_CASE("Four-treatment cubes cover complete walls and four equal top sectors"
         const ModelVolume& volume  = *object->volumes[side];
         const bool         fuzzy   = side == 1 || side == 3;
         const bool         ironing = side >= 2;
-        REQUIRE(its_volume(volume.mesh().its) == Catch::Approx(2000.0));
+        REQUIRE(its_volume(volume.mesh().its) == Catch::Approx(3906.25));
         total_volume += its_volume(volume.mesh().its);
         REQUIRE(volume.config.get().opt_enum<FuzzySkinType>("fuzzy_skin") == (fuzzy ? FuzzySkinType::External : FuzzySkinType::None));
         REQUIRE(volume.config.get().opt_bool("fuzzy_skin_top_surface") == fuzzy);
         REQUIRE(volume.config.get().opt_bool("fuzzy_skin_ironing") == (fuzzy && ironing));
         REQUIRE(volume.config.get().opt_enum<IroningType>("ironing_type") == (ironing ? IroningType::AllSolid : IroningType::NoIroning));
     }
-    REQUIRE(total_volume == Catch::Approx(8000.0));
+    REQUIRE(total_volume == Catch::Approx(15625.0));
 }
 
 TEST_CASE("Cube series and L9 arrays balance thickness and point distance", "[FuzzySurface][Calibration]")
@@ -395,7 +395,7 @@ TEST_CASE("Cube labels stay smooth with card pedestals enabled or disabled", "[F
         Model        model;
         ModelObject* object = model.add_object();
         populate_fuzzy_skin_calibration_cube(*object, config, build_fuzzy_skin_calibration_plan(config).cells.front());
-        REQUIRE(object->volumes.size() == 16);
+        REQUIRE(object->volumes.size() == 8);
         size_t labels = 0;
         for (const auto* volume : object->volumes) {
             if (volume->name.find("Wall label ") != 0)
@@ -406,6 +406,74 @@ TEST_CASE("Cube labels stay smooth with card pedestals enabled or disabled", "[F
             REQUIRE_FALSE(volume->config.get().opt_bool("fuzzy_skin_ironing"));
             REQUIRE(volume->config.get().opt_enum<IroningType>("ironing_type") == IroningType::NoIroning);
         }
-        REQUIRE(labels == 12);
+        REQUIRE(labels == 4);
+    }
+}
+
+TEST_CASE("Readable calibration labels wrap inside the coupon footprint", "[FuzzySurface][Calibration]")
+{
+    for (double pad : {0.0, 0.9}) {
+        const TriangleMesh label = make_fuzzy_skin_calibration_fitted_label("T=0.05 D=0.2 I=1", 23.0, 23.0, 0.6, pad);
+        REQUIRE(label.bounding_box().size().x() <= 23.0);
+        REQUIRE(label.bounding_box().size().y() <= 23.0);
+        REQUIRE(label.bounding_box().size().y() > 3.15);
+        REQUIRE(label.bounding_box().max.z() == Catch::Approx(pad + 0.6));
+    }
+    REQUIRE_THROWS_AS(make_fuzzy_skin_calibration_fitted_label("T=0.05 D=0.2", 8.0, 8.0, 0.6), std::invalid_argument);
+    REQUIRE_THROWS_AS(make_fuzzy_skin_calibration_fitted_label("T=0.05", 23.0, 23.0, 0.6, 0.0, 0.2), std::invalid_argument);
+    const auto coarse = make_fuzzy_skin_calibration_fitted_label("T=0.5", 23.0, 23.0, 0.6, 0.0, 0.66);
+    REQUIRE(coarse.bounding_box().size().y() >= 4.62);
+}
+
+TEST_CASE("Calibration grids separate real labeled cubes and every coupon mode", "[FuzzySurface][Calibration]")
+{
+    for (auto mode : {FuzzySkinCalibrationMode::TextureMatrix, FuzzySkinCalibrationMode::IroningComparison,
+                      FuzzySkinCalibrationMode::SupportedUnderside, FuzzySkinCalibrationMode::CubeSingle,
+                      FuzzySkinCalibrationMode::CubeSeries, FuzzySkinCalibrationMode::CubeOrthogonal}) {
+        for (auto layout : {FuzzySkinCalibrationLayout::ConnectedPanel, FuzzySkinCalibrationLayout::BreakawayCoupons}) {
+            if (mode == FuzzySkinCalibrationMode::SupportedUnderside && layout == FuzzySkinCalibrationLayout::ConnectedPanel)
+                continue;
+            FuzzySkinCalibrationConfig config;
+            config.mode                      = mode;
+            config.layout                    = layout;
+            config.coupon_depth              = 20.0; // Cubes deliberately use width in both axes.
+            const auto                 plan  = build_fuzzy_skin_calibration_plan(config);
+            const auto                 grid  = build_fuzzy_skin_calibration_grid(config, plan);
+            const bool                 cube  = is_fuzzy_skin_calibration_cube(mode);
+            const double               depth = cube ? config.coupon_width : config.coupon_depth;
+            std::vector<BoundingBoxf3> bounds;
+            for (const auto& cell : plan.cells) {
+                const Vec2d   center = grid.cell_center(cell);
+                BoundingBoxf3 box;
+                if (cube) {
+                    Model        model;
+                    ModelObject* object = model.add_object();
+                    populate_fuzzy_skin_calibration_cube(*object, config, cell);
+                    for (const auto* volume : object->volumes)
+                        box.merge(volume->mesh().bounding_box());
+                } else {
+                    box = make_fuzzy_skin_calibration_coupon(config.coupon_width, depth, config.coupon_height).bounding_box();
+                }
+                box.translate(Vec3d(center.x(), center.y(), 0.0));
+                CAPTURE(int(mode), int(layout), cell.row, cell.column);
+                REQUIRE(box.min.x() >= -0.5 * grid.width - 1e-5);
+                REQUIRE(box.max.x() <= 0.5 * grid.width + 1e-5);
+                REQUIRE(box.min.y() >= -0.5 * grid.depth - 1e-5);
+                REQUIRE(box.max.y() <= 0.5 * grid.depth + 1e-5);
+                for (const auto& other : bounds) {
+                    const double gap_x = std::max(box.min.x() - other.max.x(), other.min.x() - box.max.x());
+                    const double gap_y = std::max(box.min.y() - other.max.y(), other.min.y() - box.max.y());
+                    REQUIRE(std::max(gap_x, gap_y) >= config.gap - 1e-5);
+                }
+                bounds.push_back(box);
+                if (cell.column + 1 < plan.columns) {
+                    auto next = cell;
+                    ++next.column;
+                    REQUIRE(grid.cell_center(next).x() - center.x() == Catch::Approx(grid.pitch_x));
+                    REQUIRE(grid.pitch_x - config.coupon_width - 2.0 * grid.edge_clearance == Catch::Approx(config.gap));
+                }
+            }
+            REQUIRE(grid.pitch_y - depth - 2.0 * grid.edge_clearance == Catch::Approx(config.gap));
+        }
     }
 }

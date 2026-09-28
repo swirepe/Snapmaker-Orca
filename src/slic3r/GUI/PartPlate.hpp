@@ -769,7 +769,7 @@ public:
     int notify_instance_removed(int obj_id, int instance_id);
 
     //add instance to special plate, need to remove from the original plate
-    int add_to_plate(int obj_id, int instance_id, int plate_id);
+    int add_to_plate(int obj_id, int instance_id, int plate_id, bool move_position = true);
 
     //reload all objects
     int reload_all_objects(bool except_locked = false, int plate_index = -1);

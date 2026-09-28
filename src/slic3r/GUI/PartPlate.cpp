@@ -4506,7 +4506,7 @@ int PartPlateList::notify_instance_removed(int obj_id, int instance_id)
 
 //add instance to special plate, need to remove from the original plate
 //called from the right-mouse menu when a instance selected
-int PartPlateList::add_to_plate(int obj_id, int instance_id, int plate_id)
+int PartPlateList::add_to_plate(int obj_id, int instance_id, int plate_id, bool move_position)
 {
 	int ret = 0, index;
 	PartPlate* plate = NULL;
@@ -4539,7 +4539,7 @@ int PartPlateList::add_to_plate(int obj_id, int instance_id, int plate_id)
 		BOOST_LOG_TRIVIAL(error) << __FUNCTION__ << boost::format(":can not get plate for index %1%, size %2%") % index % m_plate_list.size();
 		return -1;
 	}
-	ret = plate->add_instance(obj_id, instance_id, true);
+    ret = plate->add_instance(obj_id, instance_id, move_position);
 
     wxGetApp().plater()->notify_filament_usage_changed();
 

@@ -8,6 +8,7 @@
 #include "test_data.hpp"
 
 #include <algorithm>
+#include <array>
 
 using namespace Slic3r;
 using namespace Slic3r::Test;
@@ -241,4 +242,51 @@ TEST_CASE("Four-treatment cube slices with distinct top and ironing regions", "[
     REQUIRE(fuzzy_regions == 2);
     REQUIRE(ironing_regions == 2);
     REQUIRE(fuzzy_ironing_regions == 1);
+}
+
+TEST_CASE("Cube wall label strokes survive slicing beyond their smooth foundations", "[Print][FuzzySurface][Calibration]")
+{
+    FuzzySkinCalibrationConfig calibration;
+    calibration.mode              = FuzzySkinCalibrationMode::CubeSingle;
+    calibration.thickness.minimum = calibration.thickness.maximum = 0.5;
+    Model        model;
+    ModelObject* object = model.add_object();
+    populate_fuzzy_skin_calibration_cube(*object, calibration, build_fuzzy_skin_calibration_plan(calibration).cells.front());
+    object->add_instance();
+    DynamicPrintConfig config = default_print_config();
+    config.set_key_value("layer_height", new ConfigOptionFloat(0.2));
+    Print print;
+    print.auto_assign_extruders(object);
+    print.apply(model, config);
+    print.set_status_silent();
+    print.process(nullptr, false);
+    const PrintObject*    printed = print.objects().front();
+    std::array<size_t, 4> glyph_layers{};
+    for (const Layer* layer : printed->layers()) {
+        std::array<bool, 4> found{};
+        for (const LayerRegion* region : layer->regions()) {
+            // Labels have a smooth, non-ironed region, including on textured walls.
+            const auto& settings = region->region().config();
+            if (settings.fuzzy_skin.value != FuzzySkinType::None || settings.ironing_type.value != IroningType::NoIroning)
+                continue;
+            for (const Polyline& path : region->perimeters.as_polylines())
+                for (const Point& point : path.points) {
+                    const double x    = unscale<double>(point.x() + printed->center_offset().x());
+                    const double y    = unscale<double>(point.y() + printed->center_offset().y());
+                    const double half = calibration.coupon_width * 0.5;
+                    // Smooth foundation ends at half + texture amplitude + 0.2.
+                    // Check extrusion beyond that foundation, where only glyphs exist.
+                    found[0] = found[0] || -y > half + 0.35;
+                    found[1] = found[1] || x > half + 0.85;
+                    found[2] = found[2] || y > half + 0.35;
+                    found[3] = found[3] || -x > half + 0.85;
+                }
+        }
+        for (size_t side = 0; side < found.size(); ++side)
+            glyph_layers[side] += found[side];
+    }
+    for (size_t count : glyph_layers) {
+        CAPTURE(count);
+        REQUIRE(count >= 20);
+    }
 }

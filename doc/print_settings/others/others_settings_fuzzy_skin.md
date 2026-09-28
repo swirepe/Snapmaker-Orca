@@ -225,4 +225,6 @@ gap strategy, not a contour-following reconstruction of the next layer. Physical
 print validation is still needed to choose settings for a particular material,
 nozzle, and support interface.
 
-Enable **Raise card labels on smooth pedestals** to lift coupon labels above the fuzzy texture on a continuous, smooth pad. The pad clears the selected texture amplitude by 0.4 mm and inherits the label’s disabled fuzzy skin and ironing settings. This option applies to cards and panel headers; cube wall labels remain directly embossed.
+Enable **Raise card labels on smooth pedestals** to lift coupon labels above the fuzzy texture on a continuous, smooth pad. The pad clears the selected texture amplitude by 0.4 mm and inherits the label’s disabled fuzzy skin and ironing settings. This option applies to cards and panel headers; cube wall labels always use smooth foundations so their text stays above the wall texture.
+
+Coupons default to 25 mm and are automatically placed in a separated grid, allowing for texture and protruding cube labels. Labels wrap within their available area and use connected strokes sized for the nozzle. A coupon too small for readable text is rejected before replacing the current project.
